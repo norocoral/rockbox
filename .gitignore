@@ -335,22 +335,48 @@ __pycache__
 # /utils/time-sync/
 /utils/time-sync/time-sync
 
-# Innioasis Y1 hosted linux port build artifacts
+# Innioasis Y1 hosted linux port build artifacts & distributions
 /hosted_linux_port/rootfs/
+/hosted_linux_port/dist/
+/hosted_linux_port/release/
 /hosted_linux_port/*.img
 /hosted_linux_port/*.zip
-/hosted_linux_port/release/*.img
-/hosted_linux_port/release/*.zip
+/hosted_linux_port/*.raw
 /hosted_linux_port/initramfs/init
 /hosted_linux_port/initramfs/init.bin
+/hosted_linux_port/audio/unmute_eac
+/hosted_linux_port/video/liby1video.so
+/hosted_linux_port/video_cache/
+/hosted_linux_port/.sdcard-stage*
+/hosted_linux_port/tools/ffmpeg
+/hosted_linux_port/tools/ffmpeg-armv7l
+/hosted_linux_port/liby1/build/
+/hosted_linux_port/liby1/examples/hello_y1
 
-# MediaTek proprietary binary blobs & firmware
+# MediaTek proprietary binary blobs, ROM dumps & firmware
+!stock_rom/
 /hosted_linux_port/bt_blobs/
 /hosted_linux_port/stock_unpacked/
 /hosted_linux_port/logo.bin
 /hosted_linux_port/release/logo.bin
 logo.bin
 *.ko
+*.scatter*.txt
+*MT6572*scatter*.txt
+WMT_SOC.cfg
+*_patch_*.bin
+SOC1_0_RAM_code*.bin
+kernel_mtk.bin
+ramdisk_android.cpio.gz
+ramdisk.cpio.gz
+y1_debug.txt
+bt_paired.dat
+
+# Temporary build & packaging files
+*.tmp
+*.tmp.*
+*.download
+dist/
 
 # vscode
 /.vscode/

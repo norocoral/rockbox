@@ -41,7 +41,8 @@
 #include "pcm-eac.h"
 #include "sbc/sbc.h"
 
-#define PAIRED_DB_PATH   "/mnt/sdcard/.rockbox/bt_paired.dat"
+#define PAIRED_DB_PATH        "/mnt/sdcard/.system/bt_paired.dat"
+#define LEGACY_PAIRED_DB_PATH "/mnt/sdcard/.rockbox/bt_paired.dat"
 #define PAIRED_MAGIC_V3  0x59314203U /* 'Y1B3' (v3 with pin, volume, and codec) */
 #define PAIRED_MAGIC_V2  0x59314202U /* 'Y1B2' (v2 with pin and volume) */
 #define PAIRED_MAGIC_V1  0x59314254U /* 'Y1BT' (legacy v1) */
@@ -258,6 +259,8 @@ static void load_paired_devices(void)
 {
     int fd = open(PAIRED_DB_PATH, O_RDONLY);
     if (fd < 0)
+        fd = open(LEGACY_PAIRED_DB_PATH, O_RDONLY);
+    if (fd < 0)
         return;
 
     uint32_t magic = 0, count = 0;
@@ -343,6 +346,7 @@ static void load_paired_devices(void)
 
 static void save_paired_devices(void)
 {
+    mkdir("/mnt/sdcard/.system", 0777);
     int fd = open(PAIRED_DB_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (fd < 0)
         return;

@@ -98,83 +98,21 @@ static int last_bl = -1;
 #include "innioasis/y1/bt-y1.h"
 #include "innioasis/y1/y1-log.h"
 #include "action.h"
-
-static int bl_fd = -1;
-static int last_hw_val = -1;
-static bool y1_kernel_early_suspended = false;
+#include "liby1.h"
 
 static void y1_enter_kernel_early_suspend(void)
 {
-    /* Hold userspace wakelock so kernel autosleep does not freeze userspace
-     * threads (audio playback, double-click Center button timer, sleep timer),
-     * while writing 'mem' to /sys/power/state to run early_suspend callbacks:
-     * - mtkfb_early_suspend: powers off LCD panel, display engine, 60Hz VSync,
-     *   and gates off all 25 MMSYS0/MMSYS1/DBI display clocks (unblocking dpidle)
-     * - tpd_suspend: puts APT32F touch controller into low-power sleep (reg 5=1)
-     * - mali_early_suspend_handler: powers off Mali-400 GPU */
-    sysfs_set_string("/sys/power/wake_lock", "rockbox_active\n");
-
-    sysfs_set_string("/proc/spm_fs/dpidle", "1 cpu_pdn\n");
-    sysfs_set_string("/proc/spm_fs/dpidle", "1 infra_pdn\n");
-    sysfs_set_string("/sys/power/idle_state", "1\n");
-    sysfs_set_string("/sys/power/dpidle_state", "cpupdn 1\n");
-    sysfs_set_string("/sys/power/dpidle_state", "1\n");
-    sysfs_set_string("/sys/power/rgidle_state", "1\n");
-
-    int mem_fd = open("/sys/power/state", O_WRONLY | O_CLOEXEC);
-    if (mem_fd >= 0) {
-        (void)!write(mem_fd, "mem\n", 4);
-        close(mem_fd);
-        y1_kernel_early_suspended = true;
-        last_hw_val = -1;
-        y1_logf("[backlight-unix] entered kernel early_suspend ('mem' -> /sys/power/state)\n");
-    }
+    y1_display_enter_early_suspend();
 }
 
 static void y1_exit_kernel_early_suspend(void)
 {
-    int on_fd = open("/sys/power/state", O_WRONLY | O_CLOEXEC);
-    if (on_fd >= 0) {
-        (void)!write(on_fd, "on\n", 3);
-        close(on_fd);
-        y1_logf("[backlight-unix] backlight_hw_on: wrote 'on' to /sys/power/state\n");
-    }
-    if (y1_kernel_early_suspended) {
-        /* Wait for mtkfb_late_resume (which has a 20ms internal msleep) to finish
-         * enabling display clocks and clearing is_early_suspended before FB/BL writes */
-        usleep(35000);
-        y1_kernel_early_suspended = false;
-        last_hw_val = -1;
-    }
-    y1_set_touch_scanning(true);
+    y1_display_exit_early_suspend();
 }
-
 
 static void write_bl_hw(int val)
 {
-    if (val == last_hw_val && bl_fd >= 0)
-        return;
-
-    if (bl_fd < 0) {
-        bl_fd = open(sysfs_bl_brightness, O_WRONLY | O_CLOEXEC);
-    }
-    if (bl_fd >= 0) {
-        char buf[16];
-        int len = snprintf(buf, sizeof(buf), "%d\n", val);
-        lseek(bl_fd, 0, SEEK_SET);
-        ssize_t w = write(bl_fd, buf, len);
-        if (w < 0) {
-            close(bl_fd);
-            bl_fd = open(sysfs_bl_brightness, O_WRONLY | O_CLOEXEC);
-            if (bl_fd >= 0)
-                w = write(bl_fd, buf, len);
-        }
-        if (w >= 0)
-            last_hw_val = val;
-    } else {
-        y1_logf("[backlight-unix] write_bl_hw(%d) ERROR: failed to open %s (errno=%d)\n",
-                val, sysfs_bl_brightness ? sysfs_bl_brightness : "NULL", errno);
-    }
+    y1_backlight_set_raw(val);
 }
 
 int y1_get_effective_brightness(void)
@@ -301,7 +239,7 @@ void lcd_sleep(void)
 
     y1_set_screen_off_power_mode(true);
 
-    if (!y1_kernel_early_suspended)
+    if (!y1_display_is_early_suspended())
         y1_enter_kernel_early_suspend();
 }
 #else

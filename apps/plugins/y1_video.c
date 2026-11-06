@@ -39,7 +39,7 @@
 #include <time.h>
 #include <sys/stat.h>
 
-#define Y1_VIDEO_LIB_PATH    "/mnt/sdcard/.rockbox/lib/liby1video.so"
+#define Y1_VIDEO_LIB_PATH    "/mnt/sdcard/.system/lib/liby1video.so"
 #define Y1_VIDEO_DB_PATH     ROCKBOX_DIR "/video_db.dat"
 #define Y1_VIDEO_THUMB_DIR   ROCKBOX_DIR "/video_thumbs"
 #define Y1_VIDEO_DB_MAGIC    0x59315644U /* 'Y1VD' */
@@ -109,6 +109,7 @@ static bool load_external_video_library(void)
     if (g_lib_ready) return true;
 
     const char *libm_candidates[] = {
+        "/mnt/sdcard/.system/lib/libm.so.6",
         "/mnt/sdcard/.rockbox/lib/libm.so.6",
         ROCKBOX_DIR "/lib/libm.so.6",
         "/lib/libm.so.6",
@@ -121,6 +122,7 @@ static bool load_external_video_library(void)
 
     const char *candidates[] = {
         Y1_VIDEO_LIB_PATH,
+        "/mnt/sdcard/.rockbox/lib/liby1video.so",
         ROCKBOX_DIR "/lib/liby1video.so",
         "/lib/liby1video.so",
         NULL
@@ -778,7 +780,11 @@ static bool find_cached_video_path(const char *src_path, char *cache_path, size_
 
     struct stat st;
 
-    /* Check 1: /mnt/sdcard/.rockbox/video_cache/<name>_360p.mp4 */
+    /* Check 1: /mnt/sdcard/.system/video_cache/<name>_360p.mp4 or .rockbox fallback */
+    rb->snprintf(cache_path, max_len, "/mnt/sdcard/.system/video_cache/%s_360p.mp4", name_no_ext);
+    if (stat(cache_path, &st) == 0 && st.st_size > 4096)
+        return true;
+
     rb->snprintf(cache_path, max_len, "/mnt/sdcard/.rockbox/video_cache/%s_360p.mp4", name_no_ext);
     if (stat(cache_path, &st) == 0 && st.st_size > 4096)
         return true;
@@ -820,7 +826,7 @@ static void get_default_cache_path(const char *src_path, char *target_path, size
         rb->strlcpy(name_no_ext, filename, sizeof(name_no_ext));
     }
 
-    rb->snprintf(target_path, max_len, "/mnt/sdcard/.rockbox/video_cache/%s_360p.mp4", name_no_ext);
+    rb->snprintf(target_path, max_len, "/mnt/sdcard/.system/video_cache/%s_360p.mp4", name_no_ext);
 }
 
 static int prompt_1080p_choice(void)
@@ -881,7 +887,9 @@ static int play_single_video(const char *path, bool force_from_beginning)
 
         if (mode == 1) { /* Auto-Cache (30 FPS) */
             const char *ffmpeg_bin = NULL;
-            if (access("/mnt/sdcard/.rockbox/bin/ffmpeg", X_OK) == 0) {
+            if (access("/mnt/sdcard/.system/bin/ffmpeg", X_OK) == 0) {
+                ffmpeg_bin = "/mnt/sdcard/.system/bin/ffmpeg";
+            } else if (access("/mnt/sdcard/.rockbox/bin/ffmpeg", X_OK) == 0) {
                 ffmpeg_bin = "/mnt/sdcard/.rockbox/bin/ffmpeg";
             } else if (access("/bin/ffmpeg", X_OK) == 0) {
                 ffmpeg_bin = "/bin/ffmpeg";
@@ -894,9 +902,11 @@ static int play_single_video(const char *path, bool force_from_beginning)
 
             if (ffmpeg_bin) {
                 rb->splash(0, "Optimizing 1080p video...\nPlease wait");
-                mkdir("/mnt/sdcard/.rockbox/video_cache", 0755);
+                rb->mkdir("/.system");
+                rb->mkdir("/.system/video_cache");
                 char cmd[MAX_PATHNAME * 2 + 256];
                 rb->snprintf(cmd, sizeof(cmd),
+                    "mkdir -p /mnt/sdcard/.system/video_cache && "
                     "%s -y -i \"%s\" -vf \"scale=480:360:force_original_aspect_ratio=decrease,pad=480:360:(ow-iw)/2:(oh-ih)/2\" "
                     "-c:v libx264 -preset ultrafast -profile:v baseline -level 3.0 -b:v 800k -c:a copy \"%s\" >/dev/null 2>&1",
                     ffmpeg_bin, actual_path, target_cache);

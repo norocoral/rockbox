@@ -30,6 +30,7 @@
 #include "power.h"
 #include "y1-log.h"
 #include "bt-y1.h"
+#include "liby1.h"
 
 #ifndef KEY_HEADSETHOOK
 #define KEY_HEADSETHOOK 226
@@ -484,8 +485,7 @@ void y1_mfb_init(void)
 {
     static bool inited = false;
     if (!inited) {
-        y1_write_pmic_reg(0x0786, 0x0180, 0xffff);
-        y1_write_pmic_reg(0x0788, 0x0180, 0xffff);
+        y1_pmic_tune_accdet_debounce();
         tick_add_task(y1_mfb_tick);
         inited = true;
     }
@@ -493,90 +493,39 @@ void y1_mfb_init(void)
 
 int button_map(int keycode)
 {
-    int mapped = 0;
-    switch(keycode)
+    uint32_t btn = y1_input_map_keycode(keycode);
+    switch (btn)
     {
-        case KEY_UP:            /* 103: Click wheel counter-clockwise */
-            mapped = BUTTON_SCROLL_BACK;
-            break;
-
-        case KEY_DOWN:          /* 108: Click wheel clockwise */
-            mapped = BUTTON_SCROLL_FWD;
-            break;
-
-        case 232:               /* MT6572 hardware matrix keypad center switch */
-        case KEY_ENTER:         /* 28: Enter */
-        case KEY_KPENTER:       /* 96 */
-        case 352:               /* KEY_OK */
-        case 353:               /* KEY_SELECT */
-        case 314:               /* BTN_SELECT */
-        case 315:               /* BTN_START */
-        case 304:               /* BTN_A */
-            mapped = BUTTON_SELECT;
-            break;
-
-        case KEY_BACK:          /* 158: Top Menu / Back button */
-        case KEY_MENU:          /* 139 */
-            mapped = BUTTON_MENU;
-            break;
-
-        case KEY_PLAYPAUSE:     /* 164: Bottom Play / Pause button */
-        case KEY_PLAY:          /* 207 */
-        case 119:               /* KEY_PAUSE */
-            mapped = BUTTON_PLAY;
-            break;
-
-        case KEY_LEFT:          /* 105: Left / Previous */
-        case 165:               /* KEY_PREVIOUSSONG */
-            mapped = BUTTON_LEFT;
-            break;
-
-        case KEY_RIGHT:         /* 106: Right / Next */
-        case 163:               /* KEY_NEXTSONG */
-            mapped = BUTTON_RIGHT;
-            break;
-
-        case KEY_VOLUMEDOWN:    /* 114: Side volume down */
-        case 160:
-            mapped = BUTTON_VOL_DOWN;
-            break;
-
-        case KEY_VOLUMEUP:      /* 115: Side volume up */
-        case 161:
-            mapped = BUTTON_VOL_UP;
-            break;
-
-        case KEY_POWER:         /* 116: Power button */
-            mapped = BUTTON_POWER;
-            break;
-
-        default:
-            mapped = 0;
-            break;
+        case Y1_BTN_SCROLL_BACK: return BUTTON_SCROLL_BACK;
+        case Y1_BTN_SCROLL_FWD:  return BUTTON_SCROLL_FWD;
+        case Y1_BTN_SELECT:      return BUTTON_SELECT;
+        case Y1_BTN_MENU:        return BUTTON_MENU;
+        case Y1_BTN_PLAY:        return BUTTON_PLAY;
+        case Y1_BTN_LEFT:        return BUTTON_LEFT;
+        case Y1_BTN_RIGHT:       return BUTTON_RIGHT;
+        case Y1_BTN_VOL_DOWN:    return BUTTON_VOL_DOWN;
+        case Y1_BTN_VOL_UP:      return BUTTON_VOL_UP;
+        case Y1_BTN_POWER:       return BUTTON_POWER;
+        default:                 return 0;
     }
-
-    return mapped;
 }
-
-static int y1_h2w_raw_state = -1;
 
 bool headphones_has_mic(void)
 {
     headphones_inserted();
-    return (y1_h2w_raw_state == 1);
+    return y1_jack_has_mic();
 }
 
 int y1_headphones_raw_state(void)
 {
     headphones_inserted();
-    return y1_h2w_raw_state;
+    return y1_jack_get_raw_state();
 }
 
 bool headphones_inserted(void)
 {
     static bool cached_state = true;
     static long last_check_tick = 0;
-    static int h2w_fd = -1;
     long now = current_tick;
 
     /* Check switch state at most twice per second when active, or every 2s when screen is sleeping */
@@ -586,56 +535,11 @@ bool headphones_inserted(void)
         return cached_state;
 
     last_check_tick = now;
-
-    if (h2w_fd < 0) {
-        h2w_fd = open("/sys/class/switch/h2w/state", O_RDONLY | O_CLOEXEC);
-    }
-
-    if (h2w_fd >= 0) {
-        char buf[16];
-        lseek(h2w_fd, 0, SEEK_SET);
-        ssize_t len = read(h2w_fd, buf, sizeof(buf) - 1);
-        if (len > 0) {
-            buf[len] = '\0';
-            int state = 0;
-            if (sscanf(buf, "%d", &state) == 1) {
-                if (state != y1_h2w_raw_state) {
-                    y1_h2w_raw_state = state;
-                    /* When 4-pole headset (state == 1) is inserted, configure press & release debounces to 11.7ms */
-                    if (state == 1) {
-                        y1_write_pmic_reg(0x0786, 0x0180, 0xffff);
-                        y1_write_pmic_reg(0x0788, 0x0180, 0xffff);
-                    }
-                    char kbuf[80];
-                    snprintf(kbuf, sizeof(kbuf), "[button-y1] h2w state=%d\n", state);
-                    y1_kmsg_log(kbuf);
-                }
-                cached_state = (state > 0);
-            }
-        } else {
-            close(h2w_fd);
-            h2w_fd = -1;
-        }
-    }
+    cached_state = y1_jack_is_inserted();
     return cached_state;
 }
 
 void y1_set_touch_scanning(bool enabled)
 {
-    static int current_state = -1;
-    int target = enabled ? 1 : 0;
-    if (current_state == target)
-        return;
-    current_state = target;
-
-    int fd = open("/proc/tpd_keys_enable", O_WRONLY | O_CLOEXEC);
-    if (fd >= 0) {
-        char val = enabled ? '1' : '0';
-        (void)!write(fd, &val, 1);
-        (void)!write(fd, "\n", 1);
-        close(fd);
-        char kbuf[64];
-        snprintf(kbuf, sizeof(kbuf), "[button-y1] tpd_keys_enable=%d\n", target);
-        y1_kmsg_log(kbuf);
-    }
+    y1_input_set_touch_scanning(enabled);
 }

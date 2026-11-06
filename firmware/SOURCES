@@ -301,6 +301,7 @@ target/hosted/anbernic/powermgmt-rgnano.c
 #endif /* RG_NANO */
 
 #if defined(INNIOASIS_Y1) && !defined(SIMULATOR)
+target/hosted/innioasis/y1/liby1-rockbox.c
 target/hosted/button-devinput.c
 target/hosted/innioasis/y1/button-y1.c
 target/hosted/innioasis/y1/debug-y1.c

@@ -8,10 +8,10 @@
  *  - Multi-partition physical MicroSD mounting at boot
  *  - USB Mass Storage & LUN initialization for PC music transfer (Windows/Mac/Linux)
  *  - Click wheel touch scanning activation (/proc/tpd_keys_enable)
- *  - Optional event, CPU-process, and battery diagnostics to /mnt/sdcard/y1_debug.txt
+ *  - Optional event, CPU-process, and battery diagnostics to /mnt/sdcard/.system/y1_debug.txt
  *    and /dev/kmsg
  *  - Hardware Framebuffer unblanking & visual splash verification
- *  - Execution of /rockbox with error recovery
+ *  - Execution of /mnt/sdcard/.system/app or /mnt/sdcard/.rockbox/rockbox with error recovery
  */
 
 #define _GNU_SOURCE
@@ -46,21 +46,28 @@ static int is_mounted(const char *target);
 
 static int logging_enabled_from_config(void)
 {
-    FILE *fp = fopen("/mnt/sdcard/.rockbox/config.cfg", "r");
-    if (!fp)
-        return 0;
+    const char *cfg_paths[] = {
+        "/mnt/sdcard/.system/system.cfg",
+        "/mnt/sdcard/.rockbox/config.cfg",
+        NULL
+    };
 
-    char line[128];
-    char value[16];
-    int enabled = 0;
-    while (fgets(line, sizeof(line), fp)) {
-        if (sscanf(line, "y1 logging: %15s", value) == 1) {
-            enabled = strcmp(value, "on") == 0;
-            break;
+    for (int i = 0; cfg_paths[i]; i++) {
+        FILE *fp = fopen(cfg_paths[i], "r");
+        if (!fp)
+            continue;
+
+        char line[128];
+        char value[16];
+        while (fgets(line, sizeof(line), fp)) {
+            if (sscanf(line, "y1 logging: %15s", value) == 1) {
+                fclose(fp);
+                return strcmp(value, "on") == 0;
+            }
         }
+        fclose(fp);
     }
-    fclose(fp);
-    return enabled;
+    return 0;
 }
 
 static int read_text_file(const char *path, char *buffer, size_t size)
@@ -362,7 +369,8 @@ static void log_line(const char *msg)
     size_t len = strlen(msg);
 
     if (is_mounted("/mnt/sdcard")) {
-        int fd = open("/mnt/sdcard/y1_debug.txt",
+        mkdir("/mnt/sdcard/.system", 0777);
+        int fd = open("/mnt/sdcard/.system/y1_debug.txt",
                       O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0666);
         if (fd >= 0) {
             if (early_log_len > 0) {
@@ -568,13 +576,20 @@ static int is_mounted(const char *target)
     return found;
 }
 
+static const char *get_sdcard_app_binary(void)
+{
+    if (!is_mounted("/mnt/sdcard"))
+        return NULL;
+    if (access("/mnt/sdcard/.system/app", X_OK) == 0)
+        return "/mnt/sdcard/.system/app";
+    if (access("/mnt/sdcard/.rockbox/rockbox", X_OK) == 0)
+        return "/mnt/sdcard/.rockbox/rockbox";
+    return NULL;
+}
+
 static int has_sdcard_rockbox(void)
 {
-    struct stat st;
-    return is_mounted("/mnt/sdcard") &&
-           stat("/mnt/sdcard/.rockbox", &st) == 0 &&
-           S_ISDIR(st.st_mode) &&
-           access("/mnt/sdcard/.rockbox/rockbox", X_OK) == 0;
+    return get_sdcard_app_binary() != NULL;
 }
 
 /* Link all user folders and files from /mnt/sdcard into / so plugins and apps see / as SD root */
@@ -583,6 +598,10 @@ static void link_sdcard_to_root(void)
     static int sdcard_linked = 0;
     if (sdcard_linked)
         return;
+
+    mkdir("/mnt/sdcard/.system", 0777);
+    unlink("/.system");
+    (void)!symlink("/mnt/sdcard/.system", "/.system");
 
     DIR *d = opendir("/mnt/sdcard");
     if (!d) return;
@@ -937,7 +956,15 @@ static void display_screen(const char *name)
         snprintf(path, sizeof(path), "/etc/%s.raw", name);
         img_fd = open(path, O_RDONLY | O_CLOEXEC);
 
-        /* 2. Try SD card fallbacks */
+        /* 2. Try SD card .system and .rockbox fallbacks */
+        if (img_fd < 0) {
+            snprintf(path, sizeof(path), "/.system/%s.raw", name);
+            img_fd = open(path, O_RDONLY | O_CLOEXEC);
+        }
+        if (img_fd < 0) {
+            snprintf(path, sizeof(path), "/mnt/sdcard/.system/%s.raw", name);
+            img_fd = open(path, O_RDONLY | O_CLOEXEC);
+        }
         if (img_fd < 0) {
             snprintf(path, sizeof(path), "/.rockbox/%s.raw", name);
             img_fd = open(path, O_RDONLY | O_CLOEXEC);
@@ -1046,8 +1073,10 @@ static void boot_into_android(void)
     log_line("Bootloader Menu: Booting Android...\n");
     clear_android_bcb();
 
-    /* Check for Android stock ramdisk archive */
+    /* Check for Android stock ramdisk archive in .system first, then fallbacks */
     const char *ramdisk_paths[] = {
+        "/mnt/sdcard/.system/ramdisk_android.cpio.gz",
+        "/mnt/sdcard/.system/ramdisk.cpio.gz",
         "/mnt/sdcard/.rockbox/ramdisk_android.cpio.gz",
         "/mnt/sdcard/.rockbox/ramdisk.cpio.gz",
         "/etc/ramdisk_android.cpio.gz",
@@ -1106,6 +1135,7 @@ static void boot_into_android(void)
                     if (strncmp(target, "/mnt/", 5) == 0 ||
                         strncmp(target, "/storage/", 9) == 0 ||
                         strcmp(de->d_name, "sdcard") == 0 ||
+                        strcmp(de->d_name, ".system") == 0 ||
                         strcmp(de->d_name, ".rockbox") == 0) {
                         unlink(path);
                     }
@@ -1117,6 +1147,7 @@ static void boot_into_android(void)
     unlink("/sdcard");
     unlink("/storage/sdcard0");
     unlink("/storage/sdcard1");
+    unlink("/.system");
     unlink("/.rockbox");
 
     /* 3. Clean up conflicting root directories before extracting stock Android ramdisk.
@@ -1215,21 +1246,28 @@ static int is_menu_button_held_at_boot(void)
 
 static int bootloader_menu_enabled_from_config(void)
 {
-    FILE *fp = fopen("/mnt/sdcard/.rockbox/config.cfg", "r");
-    if (!fp)
-        return 0;
+    const char *cfg_paths[] = {
+        "/mnt/sdcard/.system/system.cfg",
+        "/mnt/sdcard/.rockbox/config.cfg",
+        NULL
+    };
 
-    char line[128];
-    char value[16];
-    int enabled = 0;
-    while (fgets(line, sizeof(line), fp)) {
-        if (sscanf(line, "bootloader menu: %15s", value) == 1) {
-            enabled = (strcmp(value, "on") == 0);
-            break;
+    for (int i = 0; cfg_paths[i]; i++) {
+        FILE *fp = fopen(cfg_paths[i], "r");
+        if (!fp)
+            continue;
+
+        char line[128];
+        char value[16];
+        while (fgets(line, sizeof(line), fp)) {
+            if (sscanf(line, "bootloader menu: %15s", value) == 1) {
+                fclose(fp);
+                return (strcmp(value, "on") == 0);
+            }
         }
+        fclose(fp);
     }
-    fclose(fp);
-    return enabled;
+    return 0;
 }
 
 static void run_bootloader_menu(void)
@@ -1511,12 +1549,16 @@ static void init_bluetooth_subsystem(void)
 
     if (load_kernel_module("/lib/modules/mtk_stp_wmt.ko", "") == 0) {
         log_line("Loaded MT6572 WMT combo driver (mtk_stp_wmt.ko).\n");
+    } else if (load_kernel_module("/mnt/sdcard/.system/bt/mtk_stp_wmt.ko", "") == 0) {
+        log_line("Loaded MT6572 WMT combo driver from .system/bt.\n");
     } else if (load_kernel_module("/mnt/sdcard/.rockbox/bt/mtk_stp_wmt.ko", "") == 0) {
         log_line("Loaded MT6572 WMT combo driver from SD card.\n");
     }
 
     if (load_kernel_module("/lib/modules/mtk_stp_bt.ko", "") == 0) {
         log_line("Loaded MT6572 STP Bluetooth driver (mtk_stp_bt.ko).\n");
+    } else if (load_kernel_module("/mnt/sdcard/.system/bt/mtk_stp_bt.ko", "") == 0) {
+        log_line("Loaded MT6572 STP Bluetooth driver from .system/bt.\n");
     } else if (load_kernel_module("/mnt/sdcard/.rockbox/bt/mtk_stp_bt.ko", "") == 0) {
         log_line("Loaded MT6572 STP Bluetooth driver from SD card.\n");
     }
@@ -1836,23 +1878,28 @@ int main(int argc, char *argv[])
         display_screen("boot");
         last_screen = "boot";
 
-        /* Ensure default Videos directory exists on MicroSD card */
+        /* Ensure default Videos and .system directories exist on MicroSD card */
+        mkdir("/mnt/sdcard/.system", 0777);
         mkdir("/mnt/sdcard/Videos", 0777);
 
         /* Link all MicroSD user files/directories to root / for plugins */
         link_sdcard_to_root();
 
-        /* Launch Rockbox executable */
-        setenv("PATH", "/bin:/sbin:/usr/bin:/usr/sbin", 1);
-        setenv("LD_LIBRARY_PATH", "/mnt/sdcard/.rockbox/lib:/lib:/usr/lib", 1);
+        /* Launch target application (/mnt/sdcard/.system/app or /mnt/sdcard/.rockbox/rockbox) */
+        setenv("PATH", "/mnt/sdcard/.system/bin:/mnt/sdcard/.rockbox/bin:/bin:/sbin:/usr/bin:/usr/sbin", 1);
+        setenv("LD_LIBRARY_PATH", "/mnt/sdcard/.system/lib:/mnt/sdcard/.rockbox/lib:/lib:/usr/lib", 1);
         setenv("HOME", "/mnt/sdcard", 1);
         setenv("TERM", "linux", 1);
 
-        log_line("Launching Rockbox application from the MicroSD card...\n");
+        const char *app_bin = get_sdcard_app_binary();
+        if (!app_bin)
+            app_bin = "/mnt/sdcard/.rockbox/rockbox";
+
+        log_line("Launching application from the MicroSD card...\n");
 
         pid_t rb_pid = fork();
         if (rb_pid == 0) {
-            execl("/mnt/sdcard/.rockbox/rockbox", "/mnt/sdcard/.rockbox/rockbox", NULL);
+            execl(app_bin, app_bin, NULL);
             _exit(127);
         }
 
