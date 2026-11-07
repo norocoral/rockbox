@@ -226,16 +226,17 @@ static void y1_audio_set_output_enabled(bool enable)
         return;
 
     if (enable) {
+        bool run_dma = (dma_stopped == 0) ||
+                       y1_audio_receiver_is_active();
+        y1_audio_set_dma_running(run_dma);
+        y1_audio_set_hp_analog_gain(vol_cb_to_hp_idx(pending_vol_l),
+                                    vol_cb_to_hp_idx(pending_vol_r));
         if (!y1_audio_is_open() || !audio_output_enabled) {
             if (y1_audio_open(current_sampr) == 0) {
                 audio_output_enabled = true;
-                y1_audio_set_hp_analog_gain(vol_cb_to_hp_idx(pending_vol_l),
-                                            vol_cb_to_hp_idx(pending_vol_r));
             }
         }
         if (y1_audio_is_open()) {
-            bool run_dma = (dma_stopped == 0 && dma_locked == 0) ||
-                           y1_audio_receiver_is_active();
             y1_audio_set_dma_running(run_dma);
         }
     } else {
@@ -243,6 +244,7 @@ static void y1_audio_set_output_enabled(bool enable)
             y1_audio_close();
             audio_output_enabled = false;
         }
+        y1_audio_wake_lock(false);
     }
 }
 

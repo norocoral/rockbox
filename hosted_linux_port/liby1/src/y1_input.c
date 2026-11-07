@@ -186,7 +186,7 @@ int y1_input_poll(struct y1_input_event *out_ev, int timeout_ms)
 void y1_input_set_touch_scanning(bool enabled)
 {
     int target = enabled ? 1 : 0;
-    if (g_tpd_state == target)
+    if (!enabled && g_tpd_state == target)
         return;
     g_tpd_state = target;
 

@@ -859,6 +859,7 @@ void y1_toggle_key_lock(void)
 #endif
     if (!lock)
     {
+        backlight_on_ignore(false, 0);
         backlight_on();
     }
     splashf(HZ, "%s", str(lock ? LANG_KEYLOCK_ON : LANG_KEYLOCK_OFF));
@@ -1151,6 +1152,16 @@ static void init_act_cur(action_cur_t *cur,
     cur->items               = NULL;
     cur->timeout             = timeout;
     cur->get_context_map = get_context_map;
+
+#if defined(INNIOASIS_Y1) && !defined(BOOTLOADER)
+    extern void y1_set_menu_nav_mode(bool nav_mode);
+    bool is_nav = (context == CONTEXT_QUICKSCREEN) ||
+                  (context == CONTEXT_YESNOSCREEN) ||
+                  (context == CONTEXT_KEYBOARD)    ||
+                  (context == CONTEXT_MORSE_INPUT) ||
+                  ((context & (CONTEXT_CUSTOM | CONTEXT_PLUGIN)) != 0);
+    y1_set_menu_nav_mode(is_nav);
+#endif
 }
 
 /*******************************************************
@@ -1183,7 +1194,12 @@ static inline int do_backlight(action_last_t *last, action_cur_t *cur, int actio
     }
 
     bool bl_activate = false;
+#if defined(INNIOASIS_Y1)
+    extern bool y1_is_screen_sleeping(void);
+    bool bl_is_off = !is_backlight_on(false) || y1_is_screen_sleeping();
+#else
     bool bl_is_off = !is_backlight_on(false);
+#endif
 
 #if CONFIG_CHARGING /* disable if on external power */
     bl_is_off &= !(has_flag(last->backlight_mask, SEL_ACTION_NOEXT)
@@ -1251,6 +1267,7 @@ static int get_action_worker(action_last_t *last, action_cur_t *cur)
 
 #if defined(INNIOASIS_Y1) && !defined(BOOTLOADER)
     extern bool y1_is_screen_sleeping(void);
+    extern bool y1_display_is_early_suspended(void);
     bool bl_off = y1_is_screen_sleeping() || !is_backlight_on(true);
 
     if (last->keys_locked)
@@ -1270,28 +1287,25 @@ static int get_action_worker(action_last_t *last, action_cur_t *cur)
 
             if (raw_btn != 0 && hold_light_on)
             {
+                backlight_on_ignore(false, 0);
                 backlight_on();
                 reset_poweroff_timer();
             }
         }
     }
-    else
+    else if (!has_flag(last->backlight_mask, SEL_ACTION_ENABLED) ||
+             y1_display_is_early_suspended())
     {
-        /* Hold Switch == DISABLED (Unlocked):
-         * IF Backlight == OFF:
-         *     IF "First Keypress Enables Backlight Only" == YES:
-         *         ON ANY BUTTON PRESS -> Turn Backlight ON (Intercept and block the media command)
-         *     ELSE IF "First Keypress Enables Backlight Only" == NO (Default):
-         *         ON ANY BUTTON PRESS -> Turn Backlight ON AND Execute the media command instantly
-         *
-         * IF Backlight == ON:
-         *     ON ANY BUTTON PRESS -> Execute the media command instantly AND Reset the Backlight Idle Timer
+        /* Hold Switch == DISABLED (Unlocked) AND (Selective Backlight Actions Disabled
+         * OR waking from deep early_suspend where only Center button wakes):
+         * Standard Y1 screen-off wakeup logic.
          */
         if (bl_off)
         {
             int raw_btn = cur->button & ~(BUTTON_REPEAT | BUTTON_REL);
             if (raw_btn != 0 && (cur->button & (SYS_EVENT | BUTTON_MULTIMEDIA)) == 0)
             {
+                backlight_on_ignore(false, 0);
                 backlight_on();
                 reset_poweroff_timer();
 
@@ -1327,9 +1341,24 @@ static int get_action_worker(action_last_t *last, action_cur_t *cur)
             int raw_btn = cur->button & ~(BUTTON_REPEAT | BUTTON_REL);
             if (raw_btn != 0 && (cur->button & (SYS_EVENT | BUTTON_MULTIMEDIA)) == 0)
             {
+                backlight_on_ignore(false, 0);
                 backlight_on();
                 reset_poweroff_timer();
             }
+        }
+    }
+    else
+    {
+        /* Selective Backlight Actions (Backlight Exemptions) ENABLED:
+         * Reset the idle poweroff timer on activity, but do NOT wake the backlight
+         * or consume the button here. Let action_code_lookup() determine the action
+         * and do_backlight() evaluate whether this specific action is exempt from waking
+         * the display.
+         */
+        int raw_btn = cur->button & ~(BUTTON_REPEAT | BUTTON_REL);
+        if (raw_btn != 0 && (cur->button & (SYS_EVENT | BUTTON_MULTIMEDIA)) == 0)
+        {
+            reset_poweroff_timer();
         }
     }
 #endif
@@ -1668,6 +1697,11 @@ void set_selective_backlight_actions(bool selective, unsigned int mask,
 bool is_keys_locked(void)
 {
     return (action_last.keys_locked);
+}
+
+bool y1_is_selective_backlight_enabled(void)
+{
+    return has_flag(action_last.backlight_mask, SEL_ACTION_ENABLED);
 }
 
 /* Enable selected actions to bypass a locked state */

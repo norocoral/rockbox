@@ -12,6 +12,8 @@ SIMFLAGS += $(INCLUDES) $(DEFINES) -DHAVE_CONFIG_H $(GCCOPTS)
 
 .SECONDEXPANSION:
 
+$(BUILDDIR)/firmware/target/hosted/innioasis/y1/liby1-rockbox.o $(OBJDIR)/firmware/target/hosted/innioasis/y1/liby1-rockbox.o: $(wildcard $(ROOTDIR)/hosted_linux_port/liby1/src/*.c) $(wildcard $(ROOTDIR)/hosted_linux_port/liby1/include/*.h)
+
 $(BUILDDIR)/rockbox.elf : $$(OBJ) $(FIRMLIB) $(VOICESPEEXLIB) $(CORE_LIBS)
 	$(call PRINTS,LD $(@F))$(CC) $(GCCOPTS) -o $@ $(OBJ) \
 		-L$(BUILDDIR)/firmware -lfirmware \

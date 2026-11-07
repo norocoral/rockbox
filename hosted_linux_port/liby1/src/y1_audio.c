@@ -219,55 +219,40 @@ int y1_audio_open(unsigned long sample_rate)
     }
     y1_logf("[liby1-audio] open(/dev/eac) SUCCESS (fd=%d)\n", eac_fd);
 
-    /* 1. Turn on Audio Clocks (Clock 4: AFE, Clock 1: AIF) */
-    ioctl(eac_fd, AUD_DRV_AFE_CLK, 1);
-    ioctl(eac_fd, AUD_DRV_AIF_CLK, 1);
-
-    /* 2. Reset and release any previous buffer or filp reservation */
+    /* 1. Turn on Audio Clocks and allocate coherent DL1 DMA ring buffer */
+    audio_clocks(1);
     ioctl(eac_fd, FREE_MEMIF_FP, 0);
     ioctl(eac_fd, AUDDRV_FREE_DL1_BUF, 0);
     ioctl(eac_fd, FREE_MEMIF_BUF, 0);
 
-    /* 3. Allocate coherent DL1 DMA ring buffer (32768 bytes) */
     int ret_alloc = ioctl(eac_fd, AUDDRV_ALLOCATE_DL1_BUF, 32768);
     y1_logf("[liby1-audio] AUDDRV_ALLOCATE_DL1_BUF(32768) returned %d (errno=%d %s)\n",
             ret_alloc, errno, ret_alloc < 0 ? strerror(errno) : "OK");
 
-    /* 4. Configure DL1 interface to this file descriptor */
     int ret_fp = ioctl(eac_fd, SET_MEMIF_FP, 0);
     y1_logf("[liby1-audio] SET_MEMIF_FP(0) returned %d (errno=%d %s)\n",
             ret_fp, errno, ret_fp < 0 ? strerror(errno) : "OK");
 
-    /* 5. Set up AFE Digital Interconnections: DL1 -> I2S Out */
+    /* 2. Set up AFE Digital Interconnections & mute unused endpoints */
     set_afereg(eac_fd, 0x24, 1 << 21, 1 << 21); /* DL1 Left -> I2S Out Left (CONN1 bit 21) */
     set_afereg(eac_fd, 0x28, 1 << 6,  1 << 6);  /* DL1 Right -> I2S Out Right (CONN2 bit 6) */
-
-    /* 6. Configure sample rate registers */
-    uint32_t dac_con1, rate_code, pmic_newif_rate;
-    calc_rate_params(sample_rate, &dac_con1, &rate_code, &pmic_newif_rate);
-
-    set_afereg(eac_fd, 0x14, rate_code, 0x0f);                  /* AFE_DAC_CON1: DL1 */
-    set_afereg(eac_fd, 0x3a0, (rate_code << 4) | 1, 0xf1);      /* AFE_IRQ_MCU_CON: IRQ1 & IRQ1 Enable */
-    set_afereg(eac_fd, 0x3ac, 1024, ~0U);                       /* AFE_IRQ_MCU_CNT1: 1024 samples period */
-    set_afereg(eac_fd, 0x108, dac_con1, ~0U);                   /* AFE_PMIC_NEWIF_CFG0 */
-    set_afereg(eac_fd, 0x10c, 0xf74f0000, ~0U);                 /* AFE_PMIC_NEWIF_CFG1 */
-    set_afereg(eac_fd, 0x34, (rate_code << 8) | 0x09, ~0U);     /* AFE_I2S_CON1: 16-bit stereo */
-    set_afereg(eac_fd, 0x124, 1, 1);                            /* AFE_PMIC_NEWIF_CFG2: Enable I2S DAC */
-    set_afereg(eac_fd, 0x4c4, 0, 0x10);                         /* Clear bit 4 of 0x4c4 */
-
-    /* 7. Enable AFE Master Switch (bit 0: AFE_ON) and DL1 DMA (bit 1: DL1_ON) */
-    set_afereg(eac_fd, 0x10, (1 << 0) | (1 << 1), (1 << 0) | (1 << 1));
-    dma_is_running = true;
-
-    /* 8. Mute unused endpoints */
+    set_afereg(eac_fd, 0x10c, 0xf74f0000, ~0U); /* AFE_PMIC_NEWIF_CFG1 */
+    set_afereg(eac_fd, 0x124, 1, 1);            /* AFE_PMIC_NEWIF_CFG2: Enable I2S DAC */
+    set_afereg(eac_fd, 0x4c4, 0, 0x10);         /* Clear bit 4 of 0x4c4 */
     ioctl(eac_fd, SET_SPEAKER_OFF, 0);
     ioctl(eac_fd, SET_EARPIECE_OFF, 0);
+    programmed_sampr = 0;
 
-    /* 9. Power up MT6323 PMIC Audio Clocks */
-    set_anareg(eac_fd, 0x106, 1, 0xffff);        /* PMIC TOP_CKPDN_CON0: Power on audio clock */
+    /* 3. Power up MT6323 PMIC Audio Clocks & AFE Master Switch BEFORE sample rate & DAC power-up */
+    set_anareg(eac_fd, 0x106, 1, 0xffff);       /* PMIC TOP_CKPDN_CON0: Power on audio clock */
     set_anareg(eac_fd, 0x10c, 0x100, 0x100);    /* PMIC TOP_CKG_CON1 bit 8: Audio 13M clock gating */
+    set_afereg(eac_fd, 0x10, 1, 1);             /* Enable AFE_ON (bit 0) */
+    audio_clocks(1);
 
-    /* 10. Power up MT6323 PMIC Audio Downlink DAC & Clocks */
+    /* 4. Program hardware sample rate & wake PMIC digital clock domain (0x4014, top_ctl_trigger, 0x4000) */
+    y1_audio_set_sample_rate(current_sampr);
+
+    /* 5. Power up Downlink DAC & analog L/R paths */
     set_anareg(eac_fd, 0x700, 0x7800, 0x7f80);
     set_anareg(eac_fd, 0x704, 0x00f0, 0x00ff);
     set_anareg(eac_fd, 0x702, 0x0500, 0x0700); /* Maximum preamp buffer gain Right (5 << 8) */
@@ -276,7 +261,7 @@ int y1_audio_open(unsigned long sample_rate)
     set_anareg(eac_fd, 0x700, 0x0180, 0x0180);
     set_anareg(eac_fd, 0x704, 0x0003, 0x0003);
 
-    /* 11. Power up and configure MT6323 PMIC Headphone Amplifier */
+    /* 6. Configure MT6323 PMIC Headphone Amplifier with pop suppression */
     set_anareg(eac_fd, 0x70c, 0xf7f2, 0xffff);
     set_anareg(eac_fd, 0x700, 0x7000, 0xf000);
     set_anareg(eac_fd, 0x70a, 0x0014, 0xffff);
@@ -284,23 +269,24 @@ int y1_audio_open(unsigned long sample_rate)
     usleep(10000); /* 10ms settling time */
     set_anareg(eac_fd, 0x70c, 0xf5ba, 0xffff);
 
+    /* 7. Ensure maximum clean PMIC digital downlink gain (0 dB unity) */
+    set_anareg(eac_fd, 0x4006, 0, 0xffff);
+    set_anareg(eac_fd, 0x4008, 0, 0xffff);
+
     current_hp_idx_l = -1;
     current_hp_idx_r = -1;
     y1_audio_set_hp_analog_gain(saved_hp_idx_l, saved_hp_idx_r);
+
+    /* 8. Finalize PMIC CDC Clock Synchronization, Master Enable, and Headphone Amp Unmute */
+    set_anareg(eac_fd, 0x4014, 1, 1);
+    top_ctl_trigger(eac_fd);
+    set_anareg(eac_fd, 0x4000, 1, 1);
     ioctl(eac_fd, SET_HEADPHONE_ON, 3);
 
-    /* 12. Configure MT6323 PMIC Digital Audio Downlink (NewIF & Codec) */
-    set_anareg(eac_fd, 0x4024, (pmic_newif_rate << 12) | 0x330, 0xffff); /* PMIC NewIF DL */
-    set_anareg(eac_fd, 0x4002, rate_code, 0x0f);                          /* PMIC Codec DL */
-    set_anareg(eac_fd, 0x4006, 0, 0xffff);                                /* PMIC DL Left digital gain: 0dB */
-    set_anareg(eac_fd, 0x4008, 0, 0xffff);                                /* PMIC DL Right digital gain: 0dB */
-    set_anareg(eac_fd, 0x4014, 1, 1);                                     /* PMIC Downlink channel enable */
+    if (dma_is_running) {
+        set_afereg(eac_fd, 0x10, (1 << 0) | (1 << 1), (1 << 0) | (1 << 1));
+    }
 
-    /* 13. PMIC CDC Clock Synchronization & Master Enable */
-    top_ctl_trigger(eac_fd);
-    set_anareg(eac_fd, 0x4000, 1, 1);                                     /* PMIC TOP_CON0: Audio Digital Master ON */
-
-    programmed_sampr = sample_rate;
     y1_log("[liby1-audio] MT6323 PMIC Digital Audio Codec & Headphone Amp fully configured.\n");
     return 0;
 }

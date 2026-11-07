@@ -380,8 +380,17 @@ static void button_tick(void)
                         else
 #endif
                         {
-                            backlight_on();
-                            buttonlight_on();
+#if defined(INNIOASIS_Y1)
+                            extern bool is_keys_locked(void);
+                            extern bool y1_is_selective_backlight_enabled(void);
+                            extern bool y1_display_is_early_suspended(void);
+                            if ((!y1_is_selective_backlight_enabled() || y1_display_is_early_suspended()) &&
+                                (!is_keys_locked() || (backlight_get_current_timeout() >= 0)))
+#endif
+                            {
+                                backlight_on();
+                                buttonlight_on();
+                            }
                         }
 #endif
                     }
@@ -400,7 +409,10 @@ static void button_tick(void)
                         skip_release = keypress_filter_fn(btn, data);
 #if defined(INNIOASIS_Y1)
                         extern bool is_keys_locked(void);
-                        if (!is_keys_locked() || (backlight_get_current_timeout() >= 0))
+                        extern bool y1_is_selective_backlight_enabled(void);
+                        extern bool y1_display_is_early_suspended(void);
+                        if ((!y1_is_selective_backlight_enabled() || y1_display_is_early_suspended()) &&
+                            (!is_keys_locked() || (backlight_get_current_timeout() >= 0)))
 #endif
                         {
                             backlight_on();

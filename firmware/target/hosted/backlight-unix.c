@@ -239,7 +239,8 @@ void lcd_sleep(void)
 
     y1_set_screen_off_power_mode(true);
 
-    if (!y1_display_is_early_suspended())
+    if (!y1_display_is_early_suspended() &&
+        !(global_settings.bl_selective_actions && y1_playback_active()))
         y1_enter_kernel_early_suspend();
 }
 #else

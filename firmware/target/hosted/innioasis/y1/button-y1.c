@@ -57,6 +57,7 @@ static long mfb_hold_2s_tick = 0;
 static long mfb_last_pmic_check = 0;
 
 /* Double-click MENU button tracking for HOLD mode toggle */
+static bool y1_menu_nav_mode = false;
 static bool menu_is_down = false;
 static long menu_press_tick = 0;
 static long menu_release_tick = 0;
@@ -67,6 +68,11 @@ static long menu_next_repeat_tick = 0;
 
 extern bool is_keys_locked(void);
 extern void backlight_on(void);
+
+void y1_set_menu_nav_mode(bool nav_mode)
+{
+    y1_menu_nav_mode = nav_mode && !is_keys_locked();
+}
 
 /* Physical Play/Pause 10-second hold forces immediate system poweroff. */
 static bool phys_play_is_down = false;
@@ -167,11 +173,11 @@ static void y1_mfb_tick(void)
         }
     }
     /* Handle MENU single click timeout:
-     * 120ms when unlocked (down from 250ms) for snappy, instantaneous Back/Menu response.
+     * 100ms when unlocked for snappy, instantaneous Back/Menu response.
      * When locked, single-click is dropped so screen stays dark and quiet. */
     else if (!menu_is_down && menu_click_count == 1)
     {
-        int single_click_timeout = is_keys_locked() ? (HZ * 25 / 100) : (HZ * 12 / 100);
+        int single_click_timeout = is_keys_locked() ? (HZ * 25 / 100) : (HZ * 10 / 100);
         if (TIME_AFTER(now, menu_release_tick + single_click_timeout))
         {
             menu_click_count = 0;
@@ -268,12 +274,19 @@ static void y1_mfb_tick(void)
 bool button_handle_key_event(int keycode, int value, bool is_accdet)
 {
     /*
-     * Double click the MENU button at any time to toggle lock (HOLD).
+     * When not in nav mode (Quickscreen / games), double click MENU toggles Lock (HOLD).
+     * In nav mode (Quickscreen / games), MENU acts directly as an UP/action button.
      * Single click opens Menu / Back. Long press triggers Quickscreen.
      */
     if (!is_accdet && (keycode == KEY_BACK || keycode == 158 ||
                        keycode == KEY_MENU || keycode == 139))
     {
+        if (y1_menu_nav_mode)
+        {
+            /* Direct mode for Quickscreen / games: zero delay, standard repeat, never lock */
+            return false;
+        }
+
         long now = current_tick;
         if (value == 1) /* Key DOWN */
         {

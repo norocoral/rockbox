@@ -50,5 +50,6 @@ int  y1_headphones_raw_state(void);
 int y1_read_pmic_reg(uint32_t offset);
 void y1_write_pmic_reg(uint32_t offset, uint32_t val, uint32_t mask);
 void y1_set_touch_scanning(bool enabled);
+void y1_set_menu_nav_mode(bool nav_mode);
 
 #endif /* _BUTTON_TARGET_H_ */

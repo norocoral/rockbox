@@ -456,20 +456,25 @@ int button_read_device(BDATA)
         bool hold_light_on = (backlight_get_current_timeout() >= 0);
 
         if (!is_keys_locked()) {
-            if (bl_off) {
+            extern bool y1_display_is_early_suspended(void);
+            if (!global_settings.bl_selective_actions || y1_display_is_early_suspended()) {
+                if (bl_off) {
 #ifdef HAVE_BACKLIGHT
-                backlight_on();
+                    backlight_on();
 #endif
 #ifdef HAVE_BUTTON_LIGHT
-                buttonlight_on();
+                    buttonlight_on();
 #endif
-            }
-            reset_poweroff_timer();
+                }
+                reset_poweroff_timer();
 
-            if (bl_off && global_settings.bl_filter_first_keypress) {
-                /* "First Keypress Enables Backlight Only" == YES:
-                 * block scroll wheel command when waking from screen-off */
-                wheel_ticks = 0;
+                if (bl_off && global_settings.bl_filter_first_keypress) {
+                    /* "First Keypress Enables Backlight Only" == YES:
+                     * block scroll wheel command when waking from screen-off */
+                    wheel_ticks = 0;
+                }
+            } else {
+                reset_poweroff_timer();
             }
         } else {
             /* Locked */
