@@ -233,6 +233,8 @@ int y1_jack_get_raw_state(void)
 bool y1_jack_is_inserted(void)
 {
     int st = y1_jack_get_raw_state();
+    if (st < 0)
+        return true; /* Default to inserted if switch driver not yet read or sysfs node unavailable */
     return st > 0;
 }
 

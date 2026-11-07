@@ -51,6 +51,7 @@ static int current_hp_idx_l = -1;
 static int current_hp_idx_r = -1;
 static int saved_hp_idx_l = 7;
 static int saved_hp_idx_r = 7;
+static bool dma_is_running = false;
 static bool deep_idle_enabled = true;
 static bool cpu_powerdown_enabled = true;
 static int wakelock_fd = -1;
@@ -92,18 +93,70 @@ static void audio_clocks(int on)
 
 static void ensure_eac_node(void)
 {
-    if (access("/dev/eac", F_OK) == 0)
-        return;
-
     int maj = 10, min = -1;
     FILE *fp = fopen("/sys/class/misc/eac/dev", "r");
     if (fp) {
         if (fscanf(fp, "%d:%d", &maj, &min) == 2 && min >= 0) {
-            y1_logf("[liby1-audio] Discovered /sys/class/misc/eac/dev: major %d, minor %d\n", maj, min);
-            unlink("/dev/eac");
-            mknod("/dev/eac", S_IFCHR | 0666, makedev(maj, min));
+            struct stat st;
+            if (stat("/dev/eac", &st) != 0 || !S_ISCHR(st.st_mode) || st.st_rdev != (dev_t)makedev(maj, min)) {
+                y1_logf("[liby1-audio] Discovered /sys/class/misc/eac/dev: major %d, minor %d\n", maj, min);
+                unlink("/dev/eac");
+                mknod("/dev/eac", S_IFCHR | 0666, makedev(maj, min));
+            }
         }
         fclose(fp);
+    }
+}
+
+static void calc_rate_params(unsigned long sampr, uint32_t *dac_con1, uint32_t *rate_code, uint32_t *pmic_newif_rate)
+{
+    switch (sampr) {
+    case 48000:
+        *dac_con1 = 0x83001803;
+        *rate_code = 10;
+        *pmic_newif_rate = 8;
+        break;
+    case 32000:
+        *dac_con1 = 0x63001803;
+        *rate_code = 8;
+        *pmic_newif_rate = 6;
+        break;
+    case 24000:
+        *dac_con1 = 0x53001803;
+        *rate_code = 6;
+        *pmic_newif_rate = 5;
+        break;
+    case 22050:
+        *dac_con1 = 0x43001803;
+        *rate_code = 5;
+        *pmic_newif_rate = 4;
+        break;
+    case 16000:
+        *dac_con1 = 0x33001823;
+        *rate_code = 4;
+        *pmic_newif_rate = 3;
+        break;
+    case 12000:
+        *dac_con1 = 0x23001803;
+        *rate_code = 2;
+        *pmic_newif_rate = 2;
+        break;
+    case 11025:
+        *dac_con1 = 0x13001803;
+        *rate_code = 1;
+        *pmic_newif_rate = 1;
+        break;
+    case 8000:
+        *dac_con1 = 0x03001823;
+        *rate_code = 0;
+        *pmic_newif_rate = 0;
+        break;
+    case 44100:
+    default:
+        *dac_con1 = 0x73001803;
+        *rate_code = 9;
+        *pmic_newif_rate = 7;
+        break;
     }
 }
 
@@ -164,69 +217,91 @@ int y1_audio_open(unsigned long sample_rate)
         y1_logf("[liby1-audio] ERROR: open(/dev/eac) failed: %s (errno=%d)\n", strerror(errno), errno);
         return -1;
     }
+    y1_logf("[liby1-audio] open(/dev/eac) SUCCESS (fd=%d)\n", eac_fd);
 
-    /* 1. Turn on Audio Clocks (AFE & AIF) */
-    audio_clocks(1);
+    /* 1. Turn on Audio Clocks (Clock 4: AFE, Clock 1: AIF) */
+    ioctl(eac_fd, AUD_DRV_AFE_CLK, 1);
+    ioctl(eac_fd, AUD_DRV_AIF_CLK, 1);
 
-    /* 2. Reset and allocate coherent DL1 DMA ring buffer (32768 bytes) */
+    /* 2. Reset and release any previous buffer or filp reservation */
     ioctl(eac_fd, FREE_MEMIF_FP, 0);
     ioctl(eac_fd, AUDDRV_FREE_DL1_BUF, 0);
     ioctl(eac_fd, FREE_MEMIF_BUF, 0);
-    ioctl(eac_fd, AUDDRV_ALLOCATE_DL1_BUF, 32768);
-    ioctl(eac_fd, SET_MEMIF_FP, 0);
 
-    /* 3. Set up AFE Digital Interconnections: DL1 -> I2S Out */
-    set_afereg(eac_fd, 0x24, 1 << 21, 1 << 21);
-    set_afereg(eac_fd, 0x28, 1 << 6,  1 << 6);
-    set_afereg(eac_fd, 0x10c, 0xf74f0000, ~0U);
-    set_afereg(eac_fd, 0x124, 1, 1);
-    set_afereg(eac_fd, 0x4c4, 0, 0x10);
+    /* 3. Allocate coherent DL1 DMA ring buffer (32768 bytes) */
+    int ret_alloc = ioctl(eac_fd, AUDDRV_ALLOCATE_DL1_BUF, 32768);
+    y1_logf("[liby1-audio] AUDDRV_ALLOCATE_DL1_BUF(32768) returned %d (errno=%d %s)\n",
+            ret_alloc, errno, ret_alloc < 0 ? strerror(errno) : "OK");
+
+    /* 4. Configure DL1 interface to this file descriptor */
+    int ret_fp = ioctl(eac_fd, SET_MEMIF_FP, 0);
+    y1_logf("[liby1-audio] SET_MEMIF_FP(0) returned %d (errno=%d %s)\n",
+            ret_fp, errno, ret_fp < 0 ? strerror(errno) : "OK");
+
+    /* 5. Set up AFE Digital Interconnections: DL1 -> I2S Out */
+    set_afereg(eac_fd, 0x24, 1 << 21, 1 << 21); /* DL1 Left -> I2S Out Left (CONN1 bit 21) */
+    set_afereg(eac_fd, 0x28, 1 << 6,  1 << 6);  /* DL1 Right -> I2S Out Right (CONN2 bit 6) */
+
+    /* 6. Configure sample rate registers */
+    uint32_t dac_con1, rate_code, pmic_newif_rate;
+    calc_rate_params(sample_rate, &dac_con1, &rate_code, &pmic_newif_rate);
+
+    set_afereg(eac_fd, 0x14, rate_code, 0x0f);                  /* AFE_DAC_CON1: DL1 */
+    set_afereg(eac_fd, 0x3a0, (rate_code << 4) | 1, 0xf1);      /* AFE_IRQ_MCU_CON: IRQ1 & IRQ1 Enable */
+    set_afereg(eac_fd, 0x3ac, 1024, ~0U);                       /* AFE_IRQ_MCU_CNT1: 1024 samples period */
+    set_afereg(eac_fd, 0x108, dac_con1, ~0U);                   /* AFE_PMIC_NEWIF_CFG0 */
+    set_afereg(eac_fd, 0x10c, 0xf74f0000, ~0U);                 /* AFE_PMIC_NEWIF_CFG1 */
+    set_afereg(eac_fd, 0x34, (rate_code << 8) | 0x09, ~0U);     /* AFE_I2S_CON1: 16-bit stereo */
+    set_afereg(eac_fd, 0x124, 1, 1);                            /* AFE_PMIC_NEWIF_CFG2: Enable I2S DAC */
+    set_afereg(eac_fd, 0x4c4, 0, 0x10);                         /* Clear bit 4 of 0x4c4 */
+
+    /* 7. Enable AFE Master Switch (bit 0: AFE_ON) and DL1 DMA (bit 1: DL1_ON) */
+    set_afereg(eac_fd, 0x10, (1 << 0) | (1 << 1), (1 << 0) | (1 << 1));
+    dma_is_running = true;
+
+    /* 8. Mute unused endpoints */
     ioctl(eac_fd, SET_SPEAKER_OFF, 0);
     ioctl(eac_fd, SET_EARPIECE_OFF, 0);
 
-    /* 4. Power up MT6323 PMIC Audio Clocks & AFE master */
-    set_anareg(eac_fd, 0x106, 1, 0xffff);
-    set_anareg(eac_fd, 0x10c, 0x100, 0x100);
-    set_afereg(eac_fd, 0x10, 1, 1);
+    /* 9. Power up MT6323 PMIC Audio Clocks */
+    set_anareg(eac_fd, 0x106, 1, 0xffff);        /* PMIC TOP_CKPDN_CON0: Power on audio clock */
+    set_anareg(eac_fd, 0x10c, 0x100, 0x100);    /* PMIC TOP_CKG_CON1 bit 8: Audio 13M clock gating */
 
-    /* 5. Program hardware sample rate */
-    programmed_sampr = 0;
-    y1_audio_set_sample_rate(current_sampr);
-
-    /* 6. Power up Downlink DAC & analog L/R paths */
+    /* 10. Power up MT6323 PMIC Audio Downlink DAC & Clocks */
     set_anareg(eac_fd, 0x700, 0x7800, 0x7f80);
     set_anareg(eac_fd, 0x704, 0x00f0, 0x00ff);
-    set_anareg(eac_fd, 0x702, 0x0500, 0x0700);
-    set_anareg(eac_fd, 0x700, 0x0050, 0x0070);
+    set_anareg(eac_fd, 0x702, 0x0500, 0x0700); /* Maximum preamp buffer gain Right (5 << 8) */
+    set_anareg(eac_fd, 0x700, 0x0050, 0x0070); /* Maximum preamp buffer gain Left (5 << 4) */
     set_anareg(eac_fd, 0x710, 0x0008, 0x0008);
     set_anareg(eac_fd, 0x700, 0x0180, 0x0180);
     set_anareg(eac_fd, 0x704, 0x0003, 0x0003);
 
-    /* 7. Configure MT6323 PMIC Headphone Amplifier with pop suppression */
+    /* 11. Power up and configure MT6323 PMIC Headphone Amplifier */
     set_anareg(eac_fd, 0x70c, 0xf7f2, 0xffff);
     set_anareg(eac_fd, 0x700, 0x7000, 0xf000);
     set_anareg(eac_fd, 0x70a, 0x0014, 0xffff);
     set_anareg(eac_fd, 0x708, 0x007c, 0xffff);
-    usleep(10000);
+    usleep(10000); /* 10ms settling time */
     set_anareg(eac_fd, 0x70c, 0xf5ba, 0xffff);
-
-    /* 8. Ensure 0 dB unity digital downlink gain */
-    set_anareg(eac_fd, 0x4006, 0, 0xffff);
-    set_anareg(eac_fd, 0x4008, 0, 0xffff);
 
     current_hp_idx_l = -1;
     current_hp_idx_r = -1;
     y1_audio_set_hp_analog_gain(saved_hp_idx_l, saved_hp_idx_r);
-
-    set_anareg(eac_fd, 0x4014, 1, 1);
-    top_ctl_trigger(eac_fd);
-    set_anareg(eac_fd, 0x4000, 1, 1);
     ioctl(eac_fd, SET_HEADPHONE_ON, 3);
 
-    /* Enable DL1 DMA */
-    set_afereg(eac_fd, 0x10, 1 << 1, 1 << 1);
+    /* 12. Configure MT6323 PMIC Digital Audio Downlink (NewIF & Codec) */
+    set_anareg(eac_fd, 0x4024, (pmic_newif_rate << 12) | 0x330, 0xffff); /* PMIC NewIF DL */
+    set_anareg(eac_fd, 0x4002, rate_code, 0x0f);                          /* PMIC Codec DL */
+    set_anareg(eac_fd, 0x4006, 0, 0xffff);                                /* PMIC DL Left digital gain: 0dB */
+    set_anareg(eac_fd, 0x4008, 0, 0xffff);                                /* PMIC DL Right digital gain: 0dB */
+    set_anareg(eac_fd, 0x4014, 1, 1);                                     /* PMIC Downlink channel enable */
 
-    y1_log("[liby1-audio] MT6323 PMIC Digital Audio Codec & Headphone Amp configured.\n");
+    /* 13. PMIC CDC Clock Synchronization & Master Enable */
+    top_ctl_trigger(eac_fd);
+    set_anareg(eac_fd, 0x4000, 1, 1);                                     /* PMIC TOP_CON0: Audio Digital Master ON */
+
+    programmed_sampr = sample_rate;
+    y1_log("[liby1-audio] MT6323 PMIC Digital Audio Codec & Headphone Amp fully configured.\n");
     return 0;
 }
 
@@ -263,10 +338,10 @@ void y1_audio_close(void)
     close(eac_fd);
     eac_fd = -1;
 
-    y1_audio_wake_lock(false);
     programmed_sampr = 0;
     current_hp_idx_l = -1;
     current_hp_idx_r = -1;
+    dma_is_running = false;
 }
 
 bool y1_audio_set_sample_rate(unsigned long sampr)
@@ -280,69 +355,26 @@ bool y1_audio_set_sample_rate(unsigned long sampr)
     uint32_t dac_con1;
     uint32_t rate_code;
     uint32_t pmic_newif_rate;
+    calc_rate_params(sampr, &dac_con1, &rate_code, &pmic_newif_rate);
 
     y1_logf("[liby1-audio] program_hw_sampr: %lu Hz\n", sampr);
 
-    switch (sampr) {
-    case 48000:
-        dac_con1 = 0x83001803;
-        rate_code = 10;
-        pmic_newif_rate = 8;
-        break;
-    case 32000:
-        dac_con1 = 0x63001803;
-        rate_code = 8;
-        pmic_newif_rate = 6;
-        break;
-    case 24000:
-        dac_con1 = 0x53001803;
-        rate_code = 6;
-        pmic_newif_rate = 5;
-        break;
-    case 22050:
-        dac_con1 = 0x43001803;
-        rate_code = 5;
-        pmic_newif_rate = 4;
-        break;
-    case 16000:
-        dac_con1 = 0x33001823;
-        rate_code = 4;
-        pmic_newif_rate = 3;
-        break;
-    case 12000:
-        dac_con1 = 0x23001803;
-        rate_code = 2;
-        pmic_newif_rate = 2;
-        break;
-    case 11025:
-        dac_con1 = 0x13001803;
-        rate_code = 1;
-        pmic_newif_rate = 1;
-        break;
-    case 8000:
-        dac_con1 = 0x03001823;
-        rate_code = 0;
-        pmic_newif_rate = 0;
-        break;
-    case 44100:
-    default:
-        dac_con1 = 0x73001803;
-        rate_code = 9;
-        pmic_newif_rate = 7;
-        break;
-    }
-
-    /* Pause DL1 DMA and gate PMIC digital paths during divider change */
+    /* 1. Pause DL1 DMA during clock and PLL reconfiguration */
     set_afereg(eac_fd, 0x10, 0, 1 << 1);
-    set_anareg(eac_fd, 0x4014, 0, 1);
-    set_anareg(eac_fd, 0x4000, 0, 1);
 
-    /* Flush and reset DL1 DMA ring buffer pointers */
+    /* 2. Gate PMIC digital audio paths before reconfiguring clock dividers.
+     * MT6323 internal digital FIR interpolation filters corrupt their history
+     * state if sample rate dividers change while the processing pipeline is active. */
+    set_anareg(eac_fd, 0x4014, 0, 1);  /* Disable PMIC downlink channel */
+    set_anareg(eac_fd, 0x4000, 0, 1);  /* Disable PMIC Audio Digital Master */
+
+    /* 3. Flush and reset coherent DL1 DMA ring buffer pointers to byte 0. */
     ioctl(eac_fd, FREE_MEMIF_FP, 0);
     ioctl(eac_fd, AUDDRV_FREE_DL1_BUF, 0);
     ioctl(eac_fd, AUDDRV_ALLOCATE_DL1_BUF, 32768);
     ioctl(eac_fd, SET_MEMIF_FP, 0);
 
+    /* 4. Configure AFE digital interconnections: DL1 -> I2S Out */
     set_afereg(eac_fd, 0x24, 1 << 21, 1 << 21);
     set_afereg(eac_fd, 0x28, 1 << 6,  1 << 6);
 
@@ -362,7 +394,11 @@ bool y1_audio_set_sample_rate(unsigned long sampr)
     set_anareg(eac_fd, 0x4000, 1, 1);
 
     usleep(5000);
-    set_afereg(eac_fd, 0x10, 1 << 1, 1 << 1);
+
+    /* Resume DL1 DMA if active */
+    if (dma_is_running) {
+        set_afereg(eac_fd, 0x10, (1 << 0) | (1 << 1), (1 << 0) | (1 << 1));
+    }
 
     if (ok)
         programmed_sampr = sampr;
@@ -402,6 +438,7 @@ void y1_audio_set_hp_analog_gain(int idx_l, int idx_r)
 
 void y1_audio_set_dma_running(bool running)
 {
+    dma_is_running = running;
     if (eac_fd < 0)
         return;
     if (running)
@@ -422,9 +459,6 @@ ssize_t y1_audio_write_pcm(const void *pcm_stereo_s16, size_t bytes)
             static const uint8_t pad[4] = {0, 0, 0, 0};
             size_t pad_len = 4 - unaligned;
             (void)!write(eac_fd, pad, pad_len);
-            written += (ssize_t)pad_len;
-            if ((size_t)written > bytes)
-                written = (ssize_t)bytes;
         }
     }
     return written;
@@ -462,7 +496,11 @@ void y1_audio_wake_lock(bool hold)
     if (hold) {
         (void)!write(wakelock_fd, "y1play\n", 7);
     } else {
-        y1_sysfs_write("/sys/power/wake_unlock", "y1play\n");
+        int ufd = open("/sys/power/wake_unlock", O_WRONLY | O_CLOEXEC);
+        if (ufd >= 0) {
+            (void)!write(ufd, "y1play\n", 7);
+            close(ufd);
+        }
     }
 }
 

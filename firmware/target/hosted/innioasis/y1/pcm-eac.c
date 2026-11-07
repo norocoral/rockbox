@@ -222,6 +222,9 @@ static int vol_cb_to_sw_remainder(int vol_cb, int hp_idx)
 
 static void y1_audio_set_output_enabled(bool enable)
 {
+    if (audio_output_enabled == enable && (enable ? y1_audio_is_open() : !y1_audio_is_open()))
+        return;
+
     if (enable) {
         if (!y1_audio_is_open() || !audio_output_enabled) {
             if (y1_audio_open(current_sampr) == 0) {
@@ -411,12 +414,27 @@ static void *pcm_worker(void *arg)
                     written = y1_audio_write_pcm(buf, chunk);
                 }
 
+                if (!bt_active && written < 0 && errno != EAGAIN && errno != EINTR) {
+                    y1_logf("[pcm-eac] write error: %zd (errno=%d %s)\n",
+                            written, errno, strerror(errno));
+                }
+
                 if (written > 0)
                 {
-                    if ((size_t)written > remaining)
-                        written = (ssize_t)remaining;
-                    remaining -= (size_t)written;
-                    buf += written;
+                    size_t unaligned = (size_t)written & 3;
+                    if (unaligned != 0)
+                    {
+                        size_t frame_bytes = (size_t)written + (4 - unaligned);
+                        if (frame_bytes > remaining)
+                            frame_bytes = remaining;
+                        remaining -= frame_bytes;
+                        buf += frame_bytes;
+                    }
+                    else
+                    {
+                        remaining -= (size_t)written;
+                        buf += written;
+                    }
                 }
                 else if (written < 0 && (errno == EAGAIN || errno == EINTR))
                 {
@@ -547,8 +565,8 @@ static void sink_dma_stop(void)
     if (y1_audio_is_open())
     {
         y1_audio_set_dma_running(false);
-        y1_audio_wake_lock(false);
     }
+    y1_audio_wake_lock(false);
 }
 
 void audiohw_close(void)
