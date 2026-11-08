@@ -40,7 +40,7 @@
 | **메모리 (RAM)**| 512 MB LPDDR2 |
 | **디스플레이** | 2.8인치 IPS LCD, **480x360 기본 해상도** (RGB565 / XRGB8888, `/dev/fb0`) |
 | **오디오 DAC/앰프**| MediaTek MT6323 PMIC 스테레오 DAC & 아날로그 PGA 헤드폰 앰프 (8 kHz ~ 48 kHz, 16-bit 스테레오) |
-| **입력 장치** | 정전식 터치 클릭 휠 (시계/반시계 방향 회전 틱), 5개 휠 버튼 (선택, 메뉴, 재생/일시정지, 이전, 다음), 2개 측면 볼륨 버튼, 전원 버튼 |
+| **입력 장치** | 정전식 터치 클릭 휠 (시계/반시계 방향 회전 틱), 5개 휠 버튼 (선택, 메뉴, 재생/일시정지, 이전, 다음) |
 | **헤드폰 단자**| 3.5mm TRRS 단자 (플러그 삽입 감지, 마이크 바이어스, 인라인 MFB 리모컨 감지 지원) |
 | **연결성** | USB 2.0 고속 OTG/클라이언트 (대용량 저장소, USB 시리얼 터미널 ACM), 블루투스 4.0, FM 라디오 |
 | **저장소** | 외장 MicroSD 슬롯 (SDSC, SDHC, 최대 2TB SDXC 지원, FAT32/exFAT/ext4) |
@@ -172,8 +172,6 @@ if (y1_input_poll(&ev, 16) > 0) {
             case Y1_BTN_RIGHT:       /* 우측 다음 곡 버튼 */ break;
             case Y1_BTN_SCROLL_FWD:  /* 휠 시계 방향 회전 */ break;
             case Y1_BTN_SCROLL_BACK: /* 휠 반시계 방향 회전 */ break;
-            case Y1_BTN_VOL_UP:      /* 측면 볼륨 + */ break;
-            case Y1_BTN_VOL_DOWN:    /* 측면 볼륨 - */ break;
             case Y1_BTN_HEADSET_MFB: /* 이어폰 인라인 리모컨 버튼 */ break;
         }
     }

@@ -37,8 +37,8 @@ stateDiagram-v2
     Awake --> Playing: 오디오 시작
     Playing --> Awake: 오디오 중지
 
-    Awake --> ScreenOff: 백라이트 타임아웃 / 전원 키
-    Playing --> ScreenOffPlaying: 백라이트 타임아웃 / 전원 키
+    Awake --> ScreenOff: 백라이트 타임아웃
+    Playing --> ScreenOffPlaying: 백라이트 타임아웃
 
     ScreenOff --> Awake: 센터 키 클릭
     ScreenOffPlaying --> Playing: 센터 키 클릭

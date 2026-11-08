@@ -479,9 +479,6 @@ int button_map(int keycode)
         case Y1_BTN_PLAY:        return BUTTON_PLAY;
         case Y1_BTN_LEFT:        return BUTTON_LEFT;
         case Y1_BTN_RIGHT:       return BUTTON_RIGHT;
-        case Y1_BTN_VOL_DOWN:    return BUTTON_VOL_DOWN;
-        case Y1_BTN_VOL_UP:      return BUTTON_VOL_UP;
-        case Y1_BTN_POWER:       return BUTTON_POWER;
         default:                 return 0;
     }
 }

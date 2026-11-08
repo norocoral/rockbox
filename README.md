@@ -103,7 +103,6 @@ Same navigation scheme as the iPod Classic, with dedicated hardware additions:
 | Left Button | Long Press | Seek backward |
 | Right Button | Short Press | Skip to next track |
 | Right Button | Long Press | Seek forward |
-| Side Buttons | Press | Volume Up / Down (1 dB steps) |
 | Headphone Remote (MFB) | In-line Clicks | Single, double, triple clicks & hold actions (configurable in Settings) |
 
 ---

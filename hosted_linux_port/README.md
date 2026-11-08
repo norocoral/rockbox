@@ -116,7 +116,6 @@ Y1 diagnostic logging is disabled by default. Enable **Settings -> Nugget -> Dev
 | Left Button | Long Press | Seek backward |
 | Right Button | Short Press | Skip to next track |
 | Right Button | Long Press | Seek forward |
-| Side Buttons | Press | Volume Up / Down (1 dB steps) |
 | Headphone Remote (MFB) | In-line Clicks | Single, double, triple clicks & hold actions (configurable in Settings) |
 
 ---

@@ -16,7 +16,7 @@ This document records the technical architecture, reverse-engineered hardware in
 | Internal Storage | 4 GB eMMC (`mmcblk0`) | Partition table ignored by Rockbox |
 | External Storage | MicroSD slot (`mmcblk1p1`) | `/dev/block/mmcblk1p1` mounted at `/mnt/sdcard` |
 | Display | 2.8" TFT LCD (480x360 native, 32bpp BGRA) | `/dev/fb0` |
-| Input | Capacitive click wheel + 5 tactile keys + power key | `/dev/input/event0` - `/dev/input/event3` |
+| Input | Capacitive click wheel + 5 tactile keys | `/dev/input/event0` - `/dev/input/event3` |
 | Headphone Jack | 3.5mm stereo with MFB hook and insert switch | `/sys/class/switch/h2w`, `/dev/input/event*` |
 | USB | Micro-USB OTG / Gadget | ConfigFS gadget (`g_mass_storage`) |
 
@@ -113,7 +113,6 @@ Inputs are mapped from Linux input events:
 - Bottom (Play/Pause): `KEY_PLAYPAUSE`
 - Left (Prev): `KEY_PREVIOUSSONG` / `KEY_REWIND`
 - Right (Next): `KEY_NEXTSONG` / `KEY_FASTFORWARD`
-- Side Buttons: `KEY_VOLUMEUP`, `KEY_VOLUMEDOWN`
 - Headphone Remote: `KEY_MEDIA` / `BTN_0` via `accdet`
 
 ### 5.2 Previous / Rewind Consistency Bug Fix

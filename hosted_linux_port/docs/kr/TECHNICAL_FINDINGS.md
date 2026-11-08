@@ -16,7 +16,7 @@
 | 내부 스토리지 | 4 GB eMMC (`mmcblk0`) | Rockbox에서 파티션 테이블 무시 |
 | 외부 스토리지 | MicroSD 슬롯 (`mmcblk1p1`) | `/dev/block/mmcblk1p1` (`/mnt/sdcard`에 마운트) |
 | 디스플레이 | 2.8" TFT LCD (480x360 네이티브, 32bpp BGRA) | `/dev/fb0` |
-| 입력 장치 | 정전식 클릭 휠 + 5개 택트 키 + 전원 키 | `/dev/input/event0` ~ `/dev/input/event3` |
+| 입력 장치 | 정전식 클릭 휠 + 5개 택트 키 | `/dev/input/event0` ~ `/dev/input/event3` |
 | 헤드폰 단자 | 3.5mm 스테레오 단자 (MFB 훅 및 삽입 감지 스위치 내장) | `/sys/class/switch/h2w`, `/dev/input/event*` |
 | USB | Micro-USB OTG / 가젯 | ConfigFS 가젯 (`g_mass_storage`) |
 
@@ -113,7 +113,6 @@ MT6572의 ALSA 서브시스템은 다운스트림 MediaTek 커널에서 대부�
 - 하단 (재생/일시정지): `KEY_PLAYPAUSE`
 - 좌측 (이전 곡): `KEY_PREVIOUSSONG` / `KEY_REWIND`
 - 우측 (다음 곡): `KEY_NEXTSONG` / `KEY_FASTFORWARD`
-- 측면 버튼: `KEY_VOLUMEUP`, `KEY_VOLUMEDOWN`
 - 헤드폰 리모컨: `accdet` 드라이버 기반 `KEY_MEDIA` / `BTN_0`
 
 ### 5.2 이전 곡 / 되감기 일관성 버그 수정

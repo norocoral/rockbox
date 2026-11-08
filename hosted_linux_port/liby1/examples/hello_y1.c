@@ -59,18 +59,18 @@ int main(void)
                 offset -= 8;
                 render_gradient(offset, brightness);
                 break;
-            case Y1_BTN_VOL_UP:
+            case Y1_BTN_RIGHT:
                 if (brightness < 100) brightness += 10;
                 y1_backlight_set_percent(brightness);
                 render_gradient(offset, brightness);
                 break;
-            case Y1_BTN_VOL_DOWN:
+            case Y1_BTN_LEFT:
                 if (brightness > 10) brightness -= 10;
                 y1_backlight_set_percent(brightness);
                 render_gradient(offset, brightness);
                 break;
             case Y1_BTN_MENU:
-            case Y1_BTN_POWER:
+            case Y1_BTN_SELECT:
                 running = false;
                 break;
             default:

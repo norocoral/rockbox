@@ -42,13 +42,6 @@ static const struct button_mapping button_context_standard[] = {
     { ACTION_STD_QUICKSCREEN,   BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
     { ACTION_STD_CONTEXT,       BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT|BUTTON_REPEAT },
     { ACTION_STD_CANCEL,        BUTTON_PLAY|BUTTON_REPEAT,          BUTTON_NONE },
-    { ACTION_STD_KEYLOCK,       BUTTON_POWER|BUTTON_REL,            BUTTON_POWER },
-#ifdef HAVE_VOLUME_IN_LIST
-    { ACTION_LIST_VOLUP,        BUTTON_VOL_UP,                      BUTTON_NONE },
-    { ACTION_LIST_VOLUP,        BUTTON_VOL_UP|BUTTON_REPEAT,        BUTTON_NONE },
-    { ACTION_LIST_VOLDOWN,      BUTTON_VOL_DOWN,                    BUTTON_NONE },
-    { ACTION_LIST_VOLDOWN,      BUTTON_VOL_DOWN|BUTTON_REPEAT,      BUTTON_NONE },
-#endif
 
     LAST_ITEM_IN_LIST
 }; /* button_context_standard */
@@ -74,10 +67,6 @@ static const struct button_mapping button_context_wps[] = {
     { ACTION_WPS_VOLDOWN,       BUTTON_SCROLL_BACK|BUTTON_REPEAT,   BUTTON_NONE },
     { ACTION_WPS_VOLUP,         BUTTON_SCROLL_FWD,                  BUTTON_NONE },
     { ACTION_WPS_VOLUP,         BUTTON_SCROLL_FWD|BUTTON_REPEAT,    BUTTON_NONE },
-    { ACTION_WPS_VOLDOWN,       BUTTON_VOL_DOWN,                    BUTTON_NONE },
-    { ACTION_WPS_VOLDOWN,       BUTTON_VOL_DOWN|BUTTON_REPEAT,      BUTTON_NONE },
-    { ACTION_WPS_VOLUP,         BUTTON_VOL_UP,                      BUTTON_NONE },
-    { ACTION_WPS_VOLUP,         BUTTON_VOL_UP|BUTTON_REPEAT,        BUTTON_NONE },
     { ACTION_WPS_BROWSE,        BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT }, 
     { ACTION_WPS_CONTEXT,       BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT|BUTTON_REPEAT },
     { ACTION_WPS_HOTKEY,        BUTTON_SELECT|BUTTON_PLAY,          BUTTON_NONE },
@@ -135,10 +124,6 @@ static const struct button_mapping button_context_keyboard[] = {
     { ACTION_KBD_ABORT,             BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
     { ACTION_KBD_MORSE_INPUT,       BUTTON_MENU|BUTTON_REPEAT,          BUTTON_MENU },
     { ACTION_KBD_MORSE_SELECT,      BUTTON_SELECT|BUTTON_REL,           BUTTON_NONE },
-    { ACTION_KBD_CURSOR_LEFT,       BUTTON_VOL_DOWN,                    BUTTON_NONE },
-    { ACTION_KBD_CURSOR_LEFT,       BUTTON_VOL_DOWN|BUTTON_REPEAT,      BUTTON_NONE },
-    { ACTION_KBD_CURSOR_RIGHT,      BUTTON_VOL_UP,                      BUTTON_NONE },
-    { ACTION_KBD_CURSOR_RIGHT,      BUTTON_VOL_UP|BUTTON_REPEAT,        BUTTON_NONE },
 
     LAST_ITEM_IN_LIST
 }; /* button_context_keyboard */
@@ -162,12 +147,6 @@ static const struct button_mapping button_context_quickscreen[] = {
 }; /* button_context_quickscreen */
 
 static const struct button_mapping button_context_list[] = {
-#ifdef HAVE_VOLUME_IN_LIST
-    { ACTION_LIST_VOLUP,    BUTTON_VOL_UP,                  BUTTON_NONE },
-    { ACTION_LIST_VOLUP,    BUTTON_VOL_UP|BUTTON_REPEAT,    BUTTON_NONE },
-    { ACTION_LIST_VOLDOWN,  BUTTON_VOL_DOWN,                BUTTON_NONE },
-    { ACTION_LIST_VOLDOWN,  BUTTON_VOL_DOWN|BUTTON_REPEAT,  BUTTON_NONE },
-#endif
     LAST_ITEM_IN_LIST__NEXTLIST(CONTEXT_STD)
 }; /* button_context_list */
 
@@ -176,10 +155,6 @@ static const struct button_mapping button_context_pitchscreen[] = {
     { ACTION_PS_INC_BIG,        BUTTON_SCROLL_FWD|BUTTON_REPEAT,    BUTTON_NONE },
     { ACTION_PS_DEC_SMALL,      BUTTON_SCROLL_BACK,                 BUTTON_NONE },
     { ACTION_PS_DEC_BIG,        BUTTON_SCROLL_BACK|BUTTON_REPEAT,   BUTTON_NONE },
-    { ACTION_PS_INC_BIG,        BUTTON_VOL_UP,                      BUTTON_NONE },
-    { ACTION_PS_INC_BIG,        BUTTON_VOL_UP|BUTTON_REPEAT,        BUTTON_NONE },
-    { ACTION_PS_DEC_BIG,        BUTTON_VOL_DOWN,                    BUTTON_NONE },
-    { ACTION_PS_DEC_BIG,        BUTTON_VOL_DOWN|BUTTON_REPEAT,      BUTTON_NONE },
     { ACTION_PS_NUDGE_LEFT,     BUTTON_LEFT,                        BUTTON_NONE },
     { ACTION_PS_NUDGE_LEFTOFF,  BUTTON_LEFT|BUTTON_REL,             BUTTON_NONE },
     { ACTION_PS_NUDGE_RIGHT,    BUTTON_RIGHT,                       BUTTON_NONE },
@@ -206,10 +181,6 @@ static const struct button_mapping button_context_recscreen[] = {
     { ACTION_SETTINGS_INCREPEAT, BUTTON_RIGHT|BUTTON_REPEAT,      BUTTON_NONE },
     { ACTION_SETTINGS_DEC,       BUTTON_LEFT,                     BUTTON_NONE },
     { ACTION_SETTINGS_DECREPEAT, BUTTON_LEFT|BUTTON_REPEAT,       BUTTON_NONE },
-    { ACTION_SETTINGS_INC,       BUTTON_VOL_UP,                   BUTTON_NONE },
-    { ACTION_SETTINGS_INCREPEAT, BUTTON_VOL_UP|BUTTON_REPEAT,     BUTTON_NONE },
-    { ACTION_SETTINGS_DEC,       BUTTON_VOL_DOWN,                 BUTTON_NONE },
-    { ACTION_SETTINGS_DECREPEAT, BUTTON_VOL_DOWN|BUTTON_REPEAT,   BUTTON_NONE },
 
     LAST_ITEM_IN_LIST__NEXTLIST(CONTEXT_STD)
 }; /* button_context_recscreen */
@@ -226,10 +197,6 @@ static const struct button_mapping button_context_radio[] = {
     { ACTION_SETTINGS_INCREPEAT, BUTTON_SCROLL_FWD|BUTTON_REPEAT, BUTTON_NONE },
     { ACTION_SETTINGS_DEC,       BUTTON_SCROLL_BACK,              BUTTON_NONE },
     { ACTION_SETTINGS_DECREPEAT, BUTTON_SCROLL_BACK|BUTTON_REPEAT,BUTTON_NONE },
-    { ACTION_SETTINGS_INC,       BUTTON_VOL_UP,                   BUTTON_NONE },
-    { ACTION_SETTINGS_INCREPEAT, BUTTON_VOL_UP|BUTTON_REPEAT,     BUTTON_NONE },
-    { ACTION_SETTINGS_DEC,       BUTTON_VOL_DOWN,                 BUTTON_NONE },
-    { ACTION_SETTINGS_DECREPEAT, BUTTON_VOL_DOWN|BUTTON_REPEAT,   BUTTON_NONE },
     { ACTION_STD_NEXT,           BUTTON_RIGHT,                    BUTTON_NONE },
     { ACTION_STD_NEXTREPEAT,     BUTTON_RIGHT|BUTTON_REPEAT,      BUTTON_NONE },
     { ACTION_STD_PREV,           BUTTON_LEFT,                     BUTTON_NONE },

@@ -110,17 +110,6 @@ uint32_t y1_input_map_keycode(int keycode)
     case 163:               /* KEY_NEXTSONG */
         return Y1_BTN_RIGHT;
 
-    case KEY_VOLUMEDOWN:    /* 114: Side volume down */
-    case 160:
-        return Y1_BTN_VOL_DOWN;
-
-    case KEY_VOLUMEUP:      /* 115: Side volume up */
-    case 161:
-        return Y1_BTN_VOL_UP;
-
-    case KEY_POWER:         /* 116: Power button */
-        return Y1_BTN_POWER;
-
     case KEY_HEADSETHOOK:   /* 226 */
     case KEY_SEND:          /* 231 */
     case 169:               /* KEY_PHONE */

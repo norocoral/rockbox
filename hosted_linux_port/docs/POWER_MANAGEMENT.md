@@ -37,8 +37,8 @@ stateDiagram-v2
     Awake --> Playing: Audio Started
     Playing --> Awake: Audio Stopped
 
-    Awake --> ScreenOff: Backlight Timeout / Power Key
-    Playing --> ScreenOffPlaying: Backlight Timeout / Power Key
+    Awake --> ScreenOff: Backlight Timeout
+    Playing --> ScreenOffPlaying: Backlight Timeout
 
     ScreenOff --> Awake: Center Key Click
     ScreenOffPlaying --> Playing: Center Key Click

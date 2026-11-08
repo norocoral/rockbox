@@ -186,11 +186,8 @@ void y1_cpu_set_screen_off_clamp(bool screen_off);
 #define Y1_BTN_SCROLL_FWD   0x0010
 #define Y1_BTN_SCROLL_BACK  0x0020
 #define Y1_BTN_PLAY         0x0040
-#define Y1_BTN_VOL_UP       0x0080
-#define Y1_BTN_VOL_DOWN     0x0100
-#define Y1_BTN_POWER        0x0200
-#define Y1_BTN_HEADSET_MFB  0x0400
-#define Y1_BTN_HEADSET_LONG 0x0800
+#define Y1_BTN_HEADSET_MFB  0x0080
+#define Y1_BTN_HEADSET_LONG 0x0100
 
 struct y1_input_event {
     int      keycode;     /* Raw Linux input_event code */

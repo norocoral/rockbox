@@ -42,7 +42,7 @@ The Innioasis Y1 is a dedicated digital audio player powered by a modern Linux k
 | **RAM** | 512 MB LPDDR2 |
 | **Display** | 2.8-inch IPS LCD, **480x360 native resolution** (RGB565 / XRGB8888 on `/dev/fb0`) |
 | **Audio DAC/Amp** | MediaTek MT6323 PMIC Hi-Fi Stereo DAC & Analog PGA Headphone Amp (8 kHz – 48 kHz, 16-bit stereo) |
-| **Input** | Capacitive Touch Click-Wheel (Clockwise & Counter-Clockwise scrolls), 5 wheel buttons (Select, Menu, Play/Pause, Prev, Next), 2 side buttons (Vol+, Vol-), Power button |
+| **Input** | Capacitive Touch Click-Wheel (Clockwise & Counter-Clockwise scrolls), 5 tactile wheel buttons (Select, Menu, Play/Pause, Prev, Next) |
 | **Headphone Jack** | 3.5mm TRRS with automatic jack detection, microphone bias, and inline MFB remote monitoring |
 | **Connectivity** | USB 2.0 High-Speed OTG/Client (Mass Storage, USB Serial Terminal ACM), Bluetooth 4.0 (MT6627), FM Radio |
 | **Storage** | MicroSD slot (supports SDSC, SDHC, and SDXC up to 2TB FAT32/exFAT/ext4) |
@@ -236,8 +236,6 @@ if (y1_input_poll(&ev, 16) > 0) {
             case Y1_BTN_RIGHT:       /* Right / Next Track */ break;
             case Y1_BTN_SCROLL_FWD:  /* Clockwise Wheel Tick */ break;
             case Y1_BTN_SCROLL_BACK: /* Counter-Clockwise Wheel Tick */ break;
-            case Y1_BTN_VOL_UP:      /* Side Volume + Button */ break;
-            case Y1_BTN_VOL_DOWN:    /* Side Volume - Button */ break;
             case Y1_BTN_HEADSET_MFB: /* Headphone Cable Inline Remote Button */ break;
         }
     }
