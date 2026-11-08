@@ -254,11 +254,6 @@ int main(void)
 int show_logo_boot( void ) INIT_ATTR;
 int show_logo_boot( void )
 {
-#if defined(INNIOASIS_Y1)
-    extern bool y1_display_raw_screen(const char *name);
-    if (y1_display_raw_screen("boot"))
-        return 0;
-#endif
     unsigned char version[32];
     int font_h, ver_w;
     snprintf(version, sizeof(version), "Ver. %s", rbversion);
@@ -512,7 +507,6 @@ static void init(void)
     settings_apply(true);
 #if defined(INNIOASIS_Y1)
     audio_init();
-    y1_play_boot_sound();
 #endif
     init_battery_tables();
 #ifdef HAVE_DIRCACHE

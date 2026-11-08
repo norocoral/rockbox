@@ -576,8 +576,11 @@ void y1_display_enter_early_suspend(void)
 
     y1_sysfs_write("/proc/spm_fs/dpidle", "1 cpu_pdn\n");
     y1_sysfs_write("/proc/spm_fs/dpidle", "1 infra_pdn\n");
+    y1_sysfs_write("/proc/spm_fs/dpidle", "1 pwrlevel\n");
     y1_sysfs_write("/sys/power/idle_state", "1\n");
     y1_sysfs_write("/sys/power/dpidle_state", "cpupdn 1\n");
+    y1_sysfs_write("/sys/power/dpidle_state", "time 0\n");
+    y1_sysfs_write("/sys/power/dpidle_state", "bypass 1\n");
     y1_sysfs_write("/sys/power/dpidle_state", "1\n");
     y1_sysfs_write("/sys/power/rgidle_state", "1\n");
 
@@ -590,6 +593,7 @@ void y1_display_enter_early_suspend(void)
 
 void y1_display_exit_early_suspend(void)
 {
+    y1_sysfs_write("/sys/power/dpidle_state", "bypass 0\n");
     if (y1_sysfs_write("/sys/power/state", "on\n")) {
         y1_log("[liby1-bl] wrote 'on' to /sys/power/state\n");
     }

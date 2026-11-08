@@ -74,11 +74,6 @@ void y1_set_menu_nav_mode(bool nav_mode)
     y1_menu_nav_mode = nav_mode && !is_keys_locked();
 }
 
-/* Physical Play/Pause 10-second hold forces immediate system poweroff. */
-static bool phys_play_is_down = false;
-static long phys_play_press_tick = 0;
-static bool phys_play_poweroff_fired = false;
-
 static void y1_kmsg_log(const char *msg)
 {
     y1_log(msg);
@@ -186,17 +181,6 @@ static void y1_mfb_tick(void)
                 button_queue_post(BUTTON_MENU, 0);
                 button_queue_post(BUTTON_MENU | BUTTON_REL, 0);
             }
-        }
-    }
-
-    /* This tick task runs independently of UI actions, including in HOLD. */
-    if (phys_play_is_down && !phys_play_poweroff_fired)
-    {
-        if (TIME_AFTER(now, phys_play_press_tick + 10 * HZ))
-        {
-            phys_play_poweroff_fired = true;
-            y1_kmsg_log("[button-y1] Play/Pause held 10s -> forced poweroff\n");
-            power_off();
         }
     }
 
@@ -338,27 +322,6 @@ bool button_handle_key_event(int keycode, int value, bool is_accdet)
         return true;
     }
 
-    /* Track physical Play/Pause button hold for 10s power-off */
-    if (!is_accdet && (keycode == KEY_PLAYPAUSE || keycode == 164 ||
-                       keycode == KEY_PLAY || keycode == 207 ||
-                       keycode == 119 /* KEY_PAUSE */))
-    {
-        if (value != 0)
-        {
-            if (!phys_play_is_down)
-            {
-                phys_play_is_down = true;
-                phys_play_press_tick = current_tick;
-                phys_play_poweroff_fired = false;
-            }
-        }
-        else
-        {
-            phys_play_is_down = false;
-        }
-        return false;
-    }
-
     /*
      * On the MediaTek MT6572 (g368_nyx) kernel, the ACCDET headset driver never
      * emits KEY_HEADSETHOOK (226). Instead, on the "ACCDET" input device it emits:
@@ -490,7 +453,7 @@ bool button_handle_key_event(int keycode, int value, bool is_accdet)
 
 bool y1_button_hold_active(void)
 {
-    return phys_play_is_down || menu_is_down || (menu_click_count > 0) ||
+    return menu_is_down || (menu_click_count > 0) ||
            mfb_is_down || mfb_waiting_5s || (mfb_click_count > 0);
 }
 
@@ -541,8 +504,13 @@ bool headphones_inserted(void)
     static long last_check_tick = 0;
     long now = current_tick;
 
-    /* Check switch state at most twice per second when active, or every 2s when screen is sleeping */
+    /* Skip sysfs polling completely when screen is off and audio is idle */
     extern bool y1_is_screen_sleeping(void);
+    extern bool y1_playback_active(void);
+    if (y1_is_screen_sleeping() && !y1_playback_active() && last_check_tick != 0)
+        return cached_state;
+
+    /* Check switch state at most twice per second when active, or every 2s when screen is sleeping */
     long interval = y1_is_screen_sleeping() ? (2 * HZ) : (HZ / 2);
     if (last_check_tick != 0 && TIME_BEFORE(now, last_check_tick + interval))
         return cached_state;

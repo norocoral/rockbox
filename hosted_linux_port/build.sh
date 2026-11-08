@@ -316,12 +316,15 @@ if [[ "$BUILD_ROOTFS" -eq 1 ]]; then
         fi
     done
 
-    # Generate bootloader menu screen assets (Pick1: Nugget, Pick2: Android, Pick3: Shut down, Pick4: USB)
+    # Generate bootloader menu screen assets (Pick1..8 for SD .system, USB/Terminal for rootfs)
     if [[ -d "$SCRIPT_DIR/bootl_image_assets" ]]; then
         echo "[*] Generating bootloader menu screen assets..."
+        rm -f "$ROOTFS_DIR/etc/bootl_pick"*.raw "$ROOTFS_DIR/etc/terminal.raw"
+        mkdir -p "$SCRIPT_DIR/bootl_raw"
         python3 "$SCRIPT_DIR/tools/generate_bootl_assets.py" \
             "$SCRIPT_DIR/bootl_image_assets" \
-            "$ROOTFS_DIR/etc"
+            "$ROOTFS_DIR/etc" \
+            "$SCRIPT_DIR/bootl_raw"
     fi
 
     echo "[*] Compiling native utilities with parallel jobs..."
@@ -403,6 +406,24 @@ if [[ "$BUILD_ROOTFS" -eq 1 ]]; then
         chmod +x "$ROOTFS_DIR/bin/busybox"
 
         ln -sf busybox "$ROOTFS_DIR/bin/sh"
+
+        echo "[*] Installing BusyBox applet symlinks (ls, top, ps, cat, etc.)..."
+        python3 -c '
+import os, sys, re
+bb_path = sys.argv[1]
+bin_dir = sys.argv[2]
+d = open(bb_path, "rb").read()
+candidates = re.findall(b"(?:[a-z0-9_.-]{1,20}\x00){15,}", d)
+for c in candidates:
+    names = [x.decode("ascii") for x in c.split(b"\x00") if x]
+    if "ls" in names and "cat" in names and "grep" in names:
+        for name in names:
+            link_path = os.path.join(bin_dir, name)
+            if not os.path.lexists(link_path):
+                os.symlink("busybox", link_path)
+        print(f"[+] Installed {len(names)} BusyBox applet symlinks in /bin")
+        break
+' "$ROOTFS_DIR/bin/busybox" "$ROOTFS_DIR/bin"
 
         mkdir -p "$ROOTFS_DIR/sbin"
         ln -sf /bin/busybox "$ROOTFS_DIR/sbin/poweroff"
@@ -655,6 +676,11 @@ if [[ "$PACKAGE_SDCARD" -eq 1 ]]; then
         if ((${#BT_ASSETS[@]})); then
             cp -a "${BT_ASSETS[@]}" "$SD_STAGE/.system/bt/"
         fi
+    fi
+
+    # Stage bootloader menu screen assets into /.system/
+    if [[ -d "$SCRIPT_DIR/bootl_raw" ]]; then
+        cp -a "$SCRIPT_DIR/bootl_raw"/*.raw "$SD_STAGE/.system/" 2>/dev/null || true
     fi
 
     # Stage optional custom standalone C application binary at /.system/app

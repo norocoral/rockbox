@@ -169,22 +169,36 @@ def rgba_to_fb_raw(rgba_pixels, w, h):
 
 def main():
     if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <assets_dir> <output_dir>")
+        print(f"Usage: {sys.argv[0]} <assets_dir> <output_dir> [sd_assets_dir]")
         sys.exit(1)
 
     assets_dir = sys.argv[1]
     out_dir = sys.argv[2]
+    sd_dir = sys.argv[3] if len(sys.argv) > 3 else None
     os.makedirs(out_dir, exist_ok=True)
+    if sd_dir:
+        os.makedirs(sd_dir, exist_ok=True)
 
     bg_path = os.path.join(assets_dir, 'bg.png')
     p1_path = os.path.join(assets_dir, 'pick1.png')
     p2_path = os.path.join(assets_dir, 'pick2.png')
     p3_path = os.path.join(assets_dir, 'pick3.png')
     p4_path = os.path.join(assets_dir, 'pick4.png')
+    p5_path = os.path.join(assets_dir, 'pick5.png')
+    p6_path = os.path.join(assets_dir, 'pick6.png')
+    p7_path = os.path.join(assets_dir, 'pick7.png')
+    p8_path = os.path.join(assets_dir, 'pick8.png')
     arr_path = os.path.join(assets_dir, 'arrow.png')
     usb_path = os.path.join(assets_dir, 'usb.png')
+    term_path = os.path.join(assets_dir, 'terminal.png')
 
-    for p in (bg_path, p1_path, p2_path, p3_path, p4_path, arr_path, usb_path):
+    required_assets = [bg_path, p1_path, p2_path, p3_path, p4_path,
+                       p5_path, p6_path, p7_path, p8_path,
+                       arr_path, usb_path]
+    if os.path.exists(term_path):
+        required_assets.append(term_path)
+
+    for p in required_assets:
         if not os.path.exists(p):
             print(f"Error: Asset '{p}' not found!")
             sys.exit(1)
@@ -194,6 +208,10 @@ def main():
     p2_w, p2_h, p2_px = decode_png(p2_path)
     p3_w, p3_h, p3_px = decode_png(p3_path)
     p4_w, p4_h, p4_px = decode_png(p4_path)
+    p5_w, p5_h, p5_px = decode_png(p5_path)
+    p6_w, p6_h, p6_px = decode_png(p6_path)
+    p7_w, p7_h, p7_px = decode_png(p7_path)
+    p8_w, p8_h, p8_px = decode_png(p8_path)
     arr_w, arr_h, arr_px = decode_png(arr_path)
     usb_w, usb_h, usb_px = decode_png(usb_path)
 
@@ -210,11 +228,17 @@ def main():
         ("bootl_pick1.raw", [(p1_px, p1_w, p1_h), (p2_px, p2_w, p2_h), (p3_px, p3_w, p3_h)], 50, 229),
         ("bootl_pick2.raw", [(p1_px, p1_w, p1_h), (p2_px, p2_w, p2_h), (p3_px, p3_w, p3_h)], 208, 229),
         ("bootl_pick3.raw", [(p2_px, p2_w, p2_h), (p3_px, p3_w, p3_h), (p4_px, p4_w, p4_h)], 208, 229),
-        ("bootl_pick4.raw", [(p2_px, p2_w, p2_h), (p3_px, p3_w, p3_h), (p4_px, p4_w, p4_h)], 366, 229),
+        ("bootl_pick4.raw", [(p3_px, p3_w, p3_h), (p4_px, p4_w, p4_h), (p5_px, p5_w, p5_h)], 208, 229),
+        ("bootl_pick5.raw", [(p4_px, p4_w, p4_h), (p5_px, p5_w, p5_h), (p6_px, p6_w, p6_h)], 208, 229),
+        ("bootl_pick6.raw", [(p5_px, p5_w, p5_h), (p6_px, p6_w, p6_h), (p7_px, p7_w, p7_h)], 208, 229),
+        ("bootl_pick7.raw", [(p6_px, p6_w, p6_h), (p7_px, p7_w, p7_h), (p8_px, p8_w, p8_h)], 208, 229),
+        ("bootl_pick8.raw", [(p6_px, p6_w, p6_h), (p7_px, p7_w, p7_h), (p8_px, p8_w, p8_h)], 366, 229),
     ]
 
     slot_x = [6, 164, 322]
     slot_y = 67
+
+    target_menu_dir = sd_dir if sd_dir else out_dir
 
     for filename, slots, ax, ay in pages:
         screen_px = bytearray(bg_px)
@@ -223,7 +247,7 @@ def main():
         overlay_sprite(screen_px, bg_w, bg_h, arr_px, arr_w, arr_h, ax, ay)
 
         raw_data = rgba_to_fb_raw(screen_px, bg_w, bg_h)
-        out_path = os.path.join(out_dir, filename)
+        out_path = os.path.join(target_menu_dir, filename)
         with open(out_path, "wb") as f:
             f.write(raw_data)
         print(f"[+] Successfully generated: {out_path} ({len(raw_data)} bytes)")
@@ -234,6 +258,21 @@ def main():
     with open(usb_out, "wb") as f:
         f.write(usb_raw)
     print(f"[+] Successfully generated: {usb_out} ({len(usb_raw)} bytes)")
+    if sd_dir:
+        with open(os.path.join(sd_dir, "bootl_usb.raw"), "wb") as f:
+            f.write(usb_raw)
+
+    # Generate bootl_terminal.raw if terminal.png exists
+    if os.path.exists(term_path):
+        term_w, term_h, term_px = decode_png(term_path)
+        term_raw = rgba_to_fb_raw(term_px, term_w, term_h)
+        t_out = os.path.join(out_dir, "bootl_terminal.raw")
+        with open(t_out, "wb") as f:
+            f.write(term_raw)
+        print(f"[+] Successfully generated: {t_out} ({len(term_raw)} bytes)")
+        if sd_dir:
+            with open(os.path.join(sd_dir, "bootl_terminal.raw"), "wb") as f:
+                f.write(term_raw)
 
 if __name__ == "__main__":
     main()

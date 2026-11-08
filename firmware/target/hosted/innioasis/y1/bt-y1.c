@@ -27,6 +27,7 @@
 #include <sys/types.h>
 #include <sys/sysmacros.h>
 #include <sys/syscall.h>
+#include <sys/ioctl.h>
 
 #ifndef makedev
 #define makedev(maj, min) (((maj) << 8) | (min))
@@ -2539,11 +2540,149 @@ static int run_cmd_sync(uint16_t opcode, const void *param, uint8_t plen)
     return wait_cmd_complete(opcode, 1500);
 }
 
+#define WMT_IOCTL_SET_PATCH_NAME  0x4004a004
+#define WMT_IOCTL_SET_STP_MODE    0x4004a005
+#define WMT_IOCTL_PORT_NAME       0x4004a00d
+#define WMT_IOCTL_SET_PATCH_NUM   0x4004a00e
+#define WMT_IOCTL_SET_PATCH_INFO  0x4004a00f
+#define WMT_IOCTL_GET_CHIP_INFO   0x8004a004
+#define WMT_IOCTL_QUERY_CHIP_ID   0x8004a00c
+
+struct wmt_patch_info {
+    int download_seq;
+    char addresse[4];
+    char patch_name[256];
+};
+
+static bool wmt_daemon_started = false;
+
+static int load_bt_kernel_module(const char *path, const char *params)
+{
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    struct stat st;
+    if (fstat(fd, &st) < 0 || st.st_size <= 0) {
+        close(fd);
+        return -1;
+    }
+    void *image = malloc(st.st_size);
+    if (!image) {
+        close(fd);
+        return -1;
+    }
+    ssize_t rb = read(fd, image, st.st_size);
+    close(fd);
+    if (rb != st.st_size) {
+        free(image);
+        return -1;
+    }
+    long ret = syscall(__NR_init_module, image, (unsigned long)st.st_size, params ? params : "");
+    free(image);
+    return (ret == 0 || errno == EEXIST) ? 0 : -1;
+}
+
+static void *wmt_patch_daemon_thread(void *arg)
+{
+    int wmt_fd = (int)(intptr_t)arg;
+
+    ioctl(wmt_fd, WMT_IOCTL_SET_PATCH_NAME, "/etc/firmware");
+    ioctl(wmt_fd, WMT_IOCTL_SET_STP_MODE, (3 & 0x0F) | 0x20); /* Mode 3: BTIF */
+    ioctl(wmt_fd, WMT_IOCTL_PORT_NAME, 0);
+
+    struct pollfd pfd;
+    pfd.fd = wmt_fd;
+    pfd.events = POLLIN;
+
+    while (1) {
+        int pr = poll(&pfd, 1, -1);
+        if (pr > 0 && (pfd.revents & POLLIN)) {
+            char cmd[256] = {0};
+            ssize_t rb = read(wmt_fd, cmd, 255);
+            if (rb > 0 && strncmp(cmd, "srh_patch", 9) == 0) {
+                (void)ioctl(wmt_fd, WMT_IOCTL_QUERY_CHIP_ID, 0);
+                (void)ioctl(wmt_fd, WMT_IOCTL_GET_CHIP_INFO, 2);
+
+                const char *patch_path = "/etc/firmware/mt6572_82_patch_e1_0_hdr.bin";
+                int pfd_bin = open(patch_path, O_RDONLY | O_CLOEXEC);
+                if (pfd_bin >= 0) {
+                    unsigned char hdr[28] = {0};
+                    if (read(pfd_bin, hdr, sizeof(hdr)) == sizeof(hdr)) {
+                        int patch_num = (hdr[24] >> 4) & 0x0F;
+                        int dl_seq    = hdr[24] & 0x0F;
+                        if (patch_num <= 0) patch_num = 1;
+                        if (dl_seq <= 0) dl_seq = 1;
+
+                        ioctl(wmt_fd, WMT_IOCTL_SET_PATCH_NUM, patch_num);
+
+                        struct wmt_patch_info pinfo;
+                        memset(&pinfo, 0, sizeof(pinfo));
+                        pinfo.download_seq = dl_seq;
+                        pinfo.addresse[0] = 0;
+                        pinfo.addresse[1] = (char)hdr[25];
+                        pinfo.addresse[2] = (char)hdr[26];
+                        pinfo.addresse[3] = (char)hdr[27];
+                        strncpy(pinfo.patch_name, patch_path, sizeof(pinfo.patch_name) - 1);
+
+                        ioctl(wmt_fd, WMT_IOCTL_SET_PATCH_INFO, &pinfo);
+                    }
+                    close(pfd_bin);
+                }
+                (void)!write(wmt_fd, "ok", 2);
+            }
+        }
+    }
+    return NULL;
+}
+
+static void ensure_mt6572_wmt_ready(void)
+{
+    if (wmt_daemon_started)
+        return;
+
+    mkdir("/system", 0755);
+    mkdir("/system/etc", 0755);
+    unlink("/system/etc/firmware");
+    (void)!symlink("/etc/firmware", "/system/etc/firmware");
+    mkdir("/data", 0777);
+
+    mknod("/dev/stpwmt", S_IFCHR | 0666, makedev(190, 0));
+    mknod("/dev/stpbt",  S_IFCHR | 0666, makedev(192, 0));
+
+    if (load_bt_kernel_module("/lib/modules/mtk_stp_wmt.ko", "") == 0 ||
+        load_bt_kernel_module("/mnt/sdcard/.system/bt/mtk_stp_wmt.ko", "") == 0 ||
+        load_bt_kernel_module("/mnt/sdcard/.rockbox/bt/mtk_stp_wmt.ko", "") == 0) {
+        bt_log("Loaded MT6572 WMT combo driver (mtk_stp_wmt.ko).\n");
+    }
+
+    if (load_bt_kernel_module("/lib/modules/mtk_stp_bt.ko", "") == 0 ||
+        load_bt_kernel_module("/mnt/sdcard/.system/bt/mtk_stp_bt.ko", "") == 0 ||
+        load_bt_kernel_module("/mnt/sdcard/.rockbox/bt/mtk_stp_bt.ko", "") == 0) {
+        bt_log("Loaded MT6572 STP Bluetooth driver (mtk_stp_bt.ko).\n");
+    }
+
+    int wmt_fd = -1;
+    for (int retry = 0; retry < 20; retry++) {
+        wmt_fd = open("/dev/stpwmt", O_RDWR | O_NOCTTY | O_CLOEXEC);
+        if (wmt_fd >= 0) break;
+        usleep(100000);
+    }
+
+    if (wmt_fd >= 0) {
+        pthread_t tid;
+        if (pthread_create(&tid, NULL, wmt_patch_daemon_thread, (void *)(intptr_t)wmt_fd) == 0) {
+            pthread_detach(tid);
+            wmt_daemon_started = true;
+            usleep(50000); /* Allow WMT ioctl setup to complete before opening /dev/stpbt */
+        } else {
+            close(wmt_fd);
+        }
+    }
+}
+
 static bool mt6572_bt_hw_open_and_init(void)
 {
     reset_bt_session();
-    mknod("/dev/stpwmt", S_IFCHR | 0666, makedev(190, 0));
-    mknod("/dev/stpbt",  S_IFCHR | 0666, makedev(192, 0));
+    ensure_mt6572_wmt_ready();
 
     bt_log("Opening /dev/stpbt (triggers MT6572 CONNSYS WMT power-on)...\n");
     pthread_mutex_lock(&stpbt_io_mtx);

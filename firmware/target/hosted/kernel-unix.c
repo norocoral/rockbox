@@ -151,9 +151,9 @@ static void *tick_worker(void *arg)
         if (y1_can_deep_idle_tick(before_ms, last_active_ms))
         {
             /* Screen is off and player is idle: block in kernel poll() on input
-             * devices for up to 250ms so CPU 0 stays in uninterrupted SPM Deep Idle,
+             * devices for up to 2500ms so CPU 0 stays in uninterrupted SPM Deep Idle,
              * while waking in < 1ms the instant any button is pressed. */
-            int ev = y1_wait_for_input_events(250);
+            int ev = y1_wait_for_input_events(2500);
             uint64_t after_ms = monotonic_ms();
             uint64_t elapsed_ms = (after_ms > before_ms) ? (after_ms - before_ms) : iv_ms;
             long ticks_elapsed = (long)(elapsed_ms / iv_ms);

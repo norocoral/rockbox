@@ -1278,89 +1278,9 @@ char *strip_extension(char* buffer, int buffer_size, const char *filename)
 /* Play a standard sound */
 #if defined(INNIOASIS_Y1) && !defined(HAVE_HARDWARE_BEEP)
 #include "keyclick_data.h"
-#include "boot_sound_data.h"
 
 void y1_play_boot_sound(void)
 {
-    if (!pcm_is_initialized())
-        pcm_postinit();
-
-    const int16_t *play_pcm = NULL;
-    size_t play_frames = 0;
-    unsigned int output_rate = mixer_get_frequency();
-
-    if (output_rate == 0)
-        output_rate = 44100;
-
-    if (output_rate == 48000)
-    {
-        play_pcm = sound_boot_48k;
-        play_frames = SOUND_BOOT_FRAMES_48K;
-    }
-    else if (output_rate == 44100)
-    {
-        play_pcm = sound_boot_44k;
-        play_frames = SOUND_BOOT_FRAMES_44K;
-    }
-    else
-    {
-        static int16_t *y1_boot_fallback_pcm = NULL;
-        static size_t y1_boot_fallback_frames = 0;
-        static unsigned int y1_boot_fallback_rate = 0;
-
-        if (y1_boot_fallback_pcm && y1_boot_fallback_rate != output_rate)
-        {
-            mixer_channel_stop(PCM_MIXER_CHAN_VOICE);
-            free(y1_boot_fallback_pcm);
-            y1_boot_fallback_pcm = NULL;
-            y1_boot_fallback_frames = 0;
-            y1_boot_fallback_rate = 0;
-        }
-
-        if (!y1_boot_fallback_pcm)
-        {
-            size_t out_frames =
-                ((uint64_t)SOUND_BOOT_FRAMES_48K * output_rate + 47999) / 48000;
-            if (out_frames == 0)
-                return;
-
-            int16_t *buf = malloc(out_frames * 2 * sizeof(int16_t));
-            if (!buf)
-                return;
-
-            for (size_t frame = 0; frame < out_frames; frame++)
-            {
-                uint64_t pos = (uint64_t)frame * 48000;
-                size_t first = pos / output_rate;
-                first = MIN(first, (size_t)(SOUND_BOOT_FRAMES_48K - 1));
-                size_t second = MIN(first + 1, (size_t)(SOUND_BOOT_FRAMES_48K - 1));
-                uint32_t frac = pos % output_rate;
-                for (int ch = 0; ch < 2; ch++)
-                {
-                    int32_t a = sound_boot_48k[first * 2 + ch];
-                    int32_t b = sound_boot_48k[second * 2 + ch];
-                    buf[frame * 2 + ch] =
-                        (int16_t)(((int64_t)a * (output_rate - frac) +
-                                   (int64_t)b * frac) / output_rate);
-                }
-            }
-
-            y1_boot_fallback_pcm = buf;
-            y1_boot_fallback_frames = out_frames;
-            y1_boot_fallback_rate = output_rate;
-        }
-
-        play_pcm = y1_boot_fallback_pcm;
-        play_frames = y1_boot_fallback_frames;
-    }
-
-    if (!play_pcm || play_frames == 0)
-        return;
-
-    mixer_channel_stop(PCM_MIXER_CHAN_VOICE);
-    mixer_channel_set_amplitude(PCM_MIXER_CHAN_VOICE, MIX_AMP_UNITY >> 1);
-    mixer_channel_play_data(PCM_MIXER_CHAN_VOICE, NULL, play_pcm,
-                            play_frames * 2 * sizeof(*play_pcm));
 }
 
 static int16_t *y1_fallback_pcm = NULL;

@@ -32,6 +32,9 @@
 #include <linux/input.h>
 #include <dirent.h>
 #include <sys/wait.h>
+#include <termios.h>
+#include <poll.h>
+#include <time.h>
 
 #ifndef VESA_NO_BLANKING
 #define VESA_NO_BLANKING 0
@@ -484,6 +487,7 @@ static void make_device_nodes(void)
     /* Standard character nodes */
     if (access("/dev/console", F_OK) != 0) mknod("/dev/console", S_IFCHR | 0600, makedev(5, 1));
     if (access("/dev/null", F_OK) != 0) mknod("/dev/null", S_IFCHR | 0666, makedev(1, 3));
+    if (access("/dev/ttyMT0", F_OK) != 0) mknod("/dev/ttyMT0", S_IFCHR | 0600, makedev(204, 0));
 
     /* Input event nodes (support up to 16 devices) */
     for (int i = 0; i < 16; i++) {
@@ -576,10 +580,34 @@ static int is_mounted(const char *target)
     return found;
 }
 
+static char custom_app_override[256] = {0};
+
 static const char *get_sdcard_app_binary(void)
 {
     if (!is_mounted("/mnt/sdcard"))
         return NULL;
+
+    if (custom_app_override[0]) {
+        static char sd_path[300];
+        if (strncmp(custom_app_override, "/mnt/sdcard/", 12) == 0) {
+            snprintf(sd_path, sizeof(sd_path), "%s", custom_app_override);
+        } else if (custom_app_override[0] == '/') {
+            snprintf(sd_path, sizeof(sd_path), "/mnt/sdcard%s", custom_app_override);
+        } else {
+            snprintf(sd_path, sizeof(sd_path), "/mnt/sdcard/%s", custom_app_override);
+        }
+        if (access(sd_path, F_OK) == 0) {
+            chmod(sd_path, 0755);
+            return sd_path;
+        }
+        /* Fallback to root symlink if pointing into SD card */
+        if (access(custom_app_override, F_OK) == 0) {
+            chmod(custom_app_override, 0755);
+            return custom_app_override;
+        }
+        return NULL;
+    }
+
     if (access("/mnt/sdcard/.system/app", X_OK) == 0)
         return "/mnt/sdcard/.system/app";
     if (access("/mnt/sdcard/.rockbox/rockbox", X_OK) == 0)
@@ -883,7 +911,9 @@ static void optimize_power_and_battery(void)
     write_sysfs("/proc/lpm/lpm_enable", "1\n");
     write_sysfs("/proc/spm_fs/dpidle", "1 cpu_pdn\n");
     write_sysfs("/proc/spm_fs/dpidle", "1 infra_pdn\n");
+    write_sysfs("/proc/spm_fs/dpidle", "1 pwrlevel\n");
     write_sysfs("/proc/spm_fs/mcdi", "1\n");
+    write_sysfs("/sys/power/dpidle_state", "time 0\n");
 
     /* 9. Suppress kernel console wakeups, printk spam & watchdog timers */
     write_sysfs("/proc/sys/kernel/printk", "1 1 1 1\n");
@@ -891,6 +921,7 @@ static void optimize_power_and_battery(void)
     write_sysfs("/proc/sys/kernel/nmi_watchdog", "0\n");
     write_sysfs("/proc/timer_stats", "0\n");
     write_sysfs("/proc/mtk_printk_ctrl", "0\n");
+    write_sysfs("/proc/batdrv_log", "0\n");
     write_sysfs("/sys/module/printk/parameters/always_kmsg_dump", "0\n");
     write_sysfs("/sys/devices/platform/mtk-uart.0/power/control", "auto\n");
 
@@ -1270,6 +1301,102 @@ static int bootloader_menu_enabled_from_config(void)
     return 0;
 }
 
+static void run_usb_serial_shell(void)
+{
+    /* Wait up to 5s for kernel /sys/class/tty/ttyGS0/dev to appear and create /dev/ttyGS0 node */
+    char dev_str[32] = {0};
+    for (int r = 0; r < 50; r++) {
+        if (read_text_file("/sys/class/tty/ttyGS0/dev", dev_str, sizeof(dev_str)) && dev_str[0])
+            break;
+        usleep(100000);
+    }
+
+    int maj = 0, min = 0;
+    if (sscanf(dev_str, "%d:%d", &maj, &min) == 2) {
+        unlink("/dev/ttyGS0");
+        mknod("/dev/ttyGS0", S_IFCHR | 0666, makedev(maj, min));
+    } else {
+        (void)!system("/bin/busybox mdev -s");
+    }
+
+    int fd = open("/dev/ttyGS0", O_RDWR);
+    if (fd < 0) {
+        return;
+    }
+
+    /* Configure line discipline for serial console terminal */
+    struct termios tio;
+    if (tcgetattr(fd, &tio) == 0) {
+        tio.c_iflag |= (ICRNL | IXON);
+        tio.c_oflag |= (OPOST | ONLCR);
+        tio.c_lflag |= (ISIG | ICANON | ECHO | ECHOE | ECHOK);
+        tcsetattr(fd, TCSANOW, &tio);
+    }
+
+    /* Immediate greeting banner upon COM port open */
+    const char *banner =
+        "Nugget for Y1 terminal\r\n"
+        "\r\n"
+        "            ################################\r\n"
+        "           ## ######################### ## ##\r\n"
+        "           ## #                       # ## ##\r\n"
+        "           ## #                       # ## ##\r\n"
+        "           ## #      ##       ##      # ## ##\r\n"
+        "           ## #                       # ## ##\r\n"
+        "           ## #      ##       ##      # ## ##\r\n"
+        "           ## #       #########       # ## ##\r\n"
+        "           ## #                       # ## ##\r\n"
+        "           ## ######################### ## ##\r\n"
+        "           ##                           ## ##\r\n"
+        "           ##         #########         ## ##\r\n"
+        "           ##       ##         ##       ## ##\r\n"
+        "           ##      ##   #####   ##      ## ##\r\n"
+        "           ##     ##   #     #   ##     ## ##\r\n"
+        "           ##     ##   #     #   ##     ## ##\r\n"
+        "           ##      ##   #####   ##      ## ##\r\n"
+        "           ##       ##         ##       ## ##\r\n"
+        "           ##         #########         ## ##\r\n"
+        "           ##                           ## ##\r\n"
+        "            ################################\r\n"
+        "                    #           #\r\n"
+        "                    #           #\r\n"
+        "                #####       #####\r\n"
+        "\r\n"
+        "         https://github.com/norocoral/nugget-y1\r\n"
+        "       Welcome! Root shell active on /dev/ttyGS0.\r\n\r\n";
+
+    (void)!write(fd, banner, strlen(banner));
+    
+    pid_t sh_pid = fork();
+    if (sh_pid == 0) {
+        dup2(fd, 0);
+        dup2(fd, 1);
+        dup2(fd, 2);
+        if (fd > 2) close(fd);
+        setsid();
+        ioctl(0, TIOCSCTTY, 1);
+
+        setenv("PATH", "/bin:/sbin:/usr/bin:/usr/sbin:/mnt/sdcard/.system/bin:/mnt/sdcard/.rockbox/bin:/mnt/sdcard/.meui/bin:/mnt/sdcard/.podi/bin:/mnt/sdcard/.custom/bin", 1);
+        setenv("LD_LIBRARY_PATH", "/mnt/sdcard/.meui/lib:/mnt/sdcard/.podi/lib:/mnt/sdcard/.custom/lib:/mnt/sdcard/.system/lib:/mnt/sdcard/.rockbox/lib:/lib:/usr/lib", 1);
+        setenv("HOME", "/mnt/sdcard", 1);
+        setenv("TERM", "vt100", 1);
+        setenv("USER", "root", 1);
+        setenv("PS1", "nugget-y1:# ", 1);
+
+        (void)!chdir("/mnt/sdcard");
+
+        execl("/bin/sh", "sh", "-i", NULL);
+        execl("/bin/busybox", "busybox", "sh", "-i", NULL);
+        _exit(1);
+    }
+
+    close(fd);
+    if (sh_pid > 0) {
+        int status = 0;
+        waitpid(sh_pid, &status, 0);
+    }
+}
+
 static void run_bootloader_menu(void)
 {
     log_line("Entering Bootloader Menu...\n");
@@ -1281,10 +1408,60 @@ static void run_bootloader_menu(void)
         event_fds[i] = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     }
 
-    int selection = 0; /* 0 = Nugget, 1 = Android, 2 = Shut down, 3 = USB */
-    const char *screens[4] = {"bootl_pick1", "bootl_pick2", "bootl_pick3", "bootl_pick4"};
+    struct bootl_entry {
+        int id; /* 0=Rockbox, 1=MeUI, 2=Podi, 3=Custom, 4=Android, 5=Shutdown, 6=USB, 7=Terminal */
+        const char *screen;
+    } entries[8];
+    int num_entries = 0;
 
-    display_screen(screens[selection]);
+    /* Pick 1: Rockbox (always present) */
+    entries[num_entries].id = 0;
+    entries[num_entries].screen = "bootl_pick1";
+    num_entries++;
+
+    /* Pick 2: MeUI (only if /.meui/meui or /mnt/sdcard/.meui/meui exists) */
+    if (access("/mnt/sdcard/.meui/meui", F_OK) == 0 || access("/.meui/meui", F_OK) == 0) {
+        entries[num_entries].id = 1;
+        entries[num_entries].screen = "bootl_pick2";
+        num_entries++;
+    }
+
+    /* Pick 3: Podi (only if /.podi/podi or /mnt/sdcard/.podi/podi exists) */
+    if (access("/mnt/sdcard/.podi/podi", F_OK) == 0 || access("/.podi/podi", F_OK) == 0) {
+        entries[num_entries].id = 2;
+        entries[num_entries].screen = "bootl_pick3";
+        num_entries++;
+    }
+
+    /* Pick 4: User defined software (only if /.custom/launch or /mnt/sdcard/.custom/launch exists) */
+    if (access("/mnt/sdcard/.custom/launch", F_OK) == 0 || access("/.custom/launch", F_OK) == 0) {
+        entries[num_entries].id = 3;
+        entries[num_entries].screen = "bootl_pick4";
+        num_entries++;
+    }
+
+    /* Pick 5: Android (always present) */
+    entries[num_entries].id = 4;
+    entries[num_entries].screen = "bootl_pick5";
+    num_entries++;
+
+    /* Pick 6: Shut down (always present) */
+    entries[num_entries].id = 5;
+    entries[num_entries].screen = "bootl_pick6";
+    num_entries++;
+
+    /* Pick 7: USB Mass Storage (always present) */
+    entries[num_entries].id = 6;
+    entries[num_entries].screen = "bootl_pick7";
+    num_entries++;
+
+    /* Pick 8: Linux terminal (USB) (always present) */
+    entries[num_entries].id = 7;
+    entries[num_entries].screen = "bootl_pick8";
+    num_entries++;
+
+    int selection = 0;
+    display_screen(entries[selection].screen);
 
     /* Debounce wait: wait 200ms before accepting confirmation */
     usleep(200000);
@@ -1323,37 +1500,76 @@ static void run_bootloader_menu(void)
 
                     /* Previous / Left / Wheel CCW */
                     if (ev.code == 105 || ev.code == 165 || ev.code == 103) {
-                        selection = (selection + 3) % 4;
-                        display_screen(screens[selection]);
+                        selection = (selection + num_entries - 1) % num_entries;
+                        display_screen(entries[selection].screen);
                     }
                     /* Next / Right / Wheel CW */
                     else if (ev.code == 106 || ev.code == 163 || ev.code == 108) {
-                        selection = (selection + 1) % 4;
-                        display_screen(screens[selection]);
+                        selection = (selection + 1) % num_entries;
+                        display_screen(entries[selection].screen);
                     }
-                    /* Confirm: Center button or Play button */
+                    /* Confirm: Center button */
                     else if (ev.code == 232 || ev.code == 28 || ev.code == 96 ||
                              ev.code == 352 || ev.code == 353 || ev.code == 314 ||
-                             ev.code == 315 || ev.code == 304 || ev.code == 164 ||
-                             ev.code == 207 || ev.code == 119) {
+                             ev.code == 315 || ev.code == 304) {
 
-                        if (selection == 0) {
-                            /* Pick 1: Nugget */
-                            log_line("Bootloader Menu: Nugget selected.\n");
+                        int action_id = entries[selection].id;
+                        if (action_id == 0) {
+                            /* Pick 1: Rockbox */
+                            log_line("Bootloader Menu: Rockbox selected.\n");
+                            custom_app_override[0] = '\0';
+                            for (int k = 0; k < 16; k++) {
+                                if (event_fds[k] >= 0) close(event_fds[k]);
+                            }
+                            return;
+                        } else if (action_id == 1) {
+                            /* Pick 2: MeUI */
+                            log_line("Bootloader Menu: MeUI selected.\n");
+                            if (access("/mnt/sdcard/.meui/meui", F_OK) == 0) {
+                                strncpy(custom_app_override, "/mnt/sdcard/.meui/meui", sizeof(custom_app_override) - 1);
+                            } else {
+                                strncpy(custom_app_override, "/.meui/meui", sizeof(custom_app_override) - 1);
+                            }
                             for (int k = 0; k < 16; k++) {
                                 if (event_fds[k] >= 0) close(event_fds[k]);
                             }
                             display_screen("boot");
                             return;
-                        } else if (selection == 1) {
-                            /* Pick 2: Android */
+                        } else if (action_id == 2) {
+                            /* Pick 3: Podi */
+                            log_line("Bootloader Menu: Podi selected.\n");
+                            if (access("/mnt/sdcard/.podi/podi", F_OK) == 0) {
+                                strncpy(custom_app_override, "/mnt/sdcard/.podi/podi", sizeof(custom_app_override) - 1);
+                            } else {
+                                strncpy(custom_app_override, "/.podi/podi", sizeof(custom_app_override) - 1);
+                            }
+                            for (int k = 0; k < 16; k++) {
+                                if (event_fds[k] >= 0) close(event_fds[k]);
+                            }
+                            display_screen("boot");
+                            return;
+                        } else if (action_id == 3) {
+                            /* Pick 4: User defined software */
+                            log_line("Bootloader Menu: User defined software selected.\n");
+                            if (access("/mnt/sdcard/.custom/launch", F_OK) == 0) {
+                                strncpy(custom_app_override, "/mnt/sdcard/.custom/launch", sizeof(custom_app_override) - 1);
+                            } else {
+                                strncpy(custom_app_override, "/.custom/launch", sizeof(custom_app_override) - 1);
+                            }
+                            for (int k = 0; k < 16; k++) {
+                                if (event_fds[k] >= 0) close(event_fds[k]);
+                            }
+                            display_screen("boot");
+                            return;
+                        } else if (action_id == 4) {
+                            /* Pick 5: Android */
                             log_line("Bootloader Menu: Android selected.\n");
                             for (int k = 0; k < 16; k++) {
                                 if (event_fds[k] >= 0) close(event_fds[k]);
                             }
                             boot_into_android();
-                        } else if (selection == 2) {
-                            /* Pick 3: Shut down */
+                        } else if (action_id == 5) {
+                            /* Pick 6: Shut down */
                             log_line("Bootloader Menu: Shut down selected.\n");
                             for (int k = 0; k < 16; k++) {
                                 if (event_fds[k] >= 0) close(event_fds[k]);
@@ -1361,8 +1577,8 @@ static void run_bootloader_menu(void)
                             sync();
                             reboot(RB_POWER_OFF);
                             while (1) sleep(1);
-                        } else if (selection == 3) {
-                            /* Pick 4: USB */
+                        } else if (action_id == 6) {
+                            /* Pick 7: USB Mass Storage */
                             log_line("Bootloader Menu: USB mode selected.\n");
                             setup_usb_gadget(active_sd_dev[0] ? active_sd_dev : NULL,
                                              active_ext_dev[0] ? active_ext_dev : NULL);
@@ -1425,7 +1641,49 @@ static void run_bootloader_menu(void)
                                 }
                             }
 
-                            display_screen(screens[selection]);
+                            display_screen(entries[selection].screen);
+                        } else if (action_id == 7) {
+                            /* Pick 8: Linux terminal (USB) -> Launch terminal shell on /dev/ttyGS0.
+                             * Disconnect ONLY when the user turns off the device or types 'exit'.
+                             * Button presses on the device will NOT disconnect the terminal. */
+                            log_line("Bootloader Menu: Linux terminal (USB) mode selected.\n");
+
+                            write_sysfs("/sys/class/android_usb/android0/enable", "0\n");
+                            write_sysfs("/sys/class/android_usb/android0/idVendor", "0e8d\n");
+                            write_sysfs("/sys/class/android_usb/android0/idProduct", "2007\n");
+                            write_sysfs("/sys/class/android_usb/android0/f_acm/instances", "1\n");
+                            write_sysfs("/sys/class/android_usb/android0/functions", "acm\n");
+                            write_sysfs("/sys/class/android_usb/android0/bDeviceClass", "02\n");
+                            write_sysfs("/sys/class/android_usb/android0/enable", "1\n");
+
+                            pid_t term_pid = fork();
+                            if (term_pid == 0) {
+                                setpgid(0, 0);
+                                run_usb_serial_shell();
+                                _exit(0);
+                            }
+
+                            display_screen("bootl_terminal");
+
+                            /* Wait for user to exit via terminal shell ('exit' command) */
+                            int status = 0;
+                            waitpid(term_pid, &status, 0);
+
+                            /* Disable USB terminal */
+                            log_line("Terminal shell exited. Disabling USB terminal and returning to Bootloader Menu...\n");
+                            write_sysfs("/sys/class/android_usb/android0/enable", "0\n");
+                            write_sysfs("/sys/class/android_usb/android0/bDeviceClass", "0\n");
+
+                            /* Debounce before returning to menu */
+                            usleep(200000);
+                            for (int k = 0; k < 16; k++) {
+                                if (event_fds[k] >= 0) {
+                                    struct input_event flush_ev;
+                                    while (read(event_fds[k], &flush_ev, sizeof(flush_ev)) == sizeof(flush_ev));
+                                }
+                            }
+
+                            display_screen(entries[selection].screen);
                         }
                     }
                 }
@@ -1499,132 +1757,19 @@ static void power_off_from_error_screen(void)
     log_line("ERROR: Device power-off failed.\n");
 }
 
-static int load_kernel_module(const char *path, const char *params)
-{
-    int fd = open(path, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return -1;
-    struct stat st;
-    if (fstat(fd, &st) < 0 || st.st_size <= 0) {
-        close(fd);
-        return -1;
-    }
-    void *image = malloc(st.st_size);
-    if (!image) {
-        close(fd);
-        return -1;
-    }
-    ssize_t rb = read(fd, image, st.st_size);
-    close(fd);
-    if (rb != st.st_size) {
-        free(image);
-        return -1;
-    }
-    long ret = syscall(__NR_init_module, image, (unsigned long)st.st_size, params ? params : "");
-    free(image);
-    return (ret == 0 || errno == EEXIST) ? 0 : -1;
-}
-
-#define WMT_IOCTL_SET_PATCH_NAME  0x4004a004
-#define WMT_IOCTL_SET_STP_MODE    0x4004a005
-#define WMT_IOCTL_PORT_NAME       0x4004a00d
-#define WMT_IOCTL_SET_PATCH_NUM   0x4004a00e
-#define WMT_IOCTL_SET_PATCH_INFO  0x4004a00f
-#define WMT_IOCTL_GET_CHIP_INFO   0x8004a004
-#define WMT_IOCTL_QUERY_CHIP_ID   0x8004a00c
-
-struct wmt_patch_info {
-    int download_seq;
-    char addresse[4];
-    char patch_name[256];
-};
-
 static void init_bluetooth_subsystem(void)
 {
-    /* Ensure /system/etc/firmware symlink points to /etc/firmware for mtk_stp_wmt.ko */
+    /* Ensure /system/etc/firmware symlink points to /etc/firmware for mtk_stp_wmt.ko.
+     * Kernel modules (mtk_stp_wmt.ko, mtk_stp_bt.ko) and the WMT patch daemon are
+     * lazy-loaded on demand by Rockbox (bt-y1.c) only when Bluetooth is enabled. */
     mkdir("/system", 0755);
     mkdir("/system/etc", 0755);
     unlink("/system/etc/firmware");
     (void)!symlink("/etc/firmware", "/system/etc/firmware");
     mkdir("/data", 0777);
 
-    if (load_kernel_module("/lib/modules/mtk_stp_wmt.ko", "") == 0) {
-        log_line("Loaded MT6572 WMT combo driver (mtk_stp_wmt.ko).\n");
-    } else if (load_kernel_module("/mnt/sdcard/.system/bt/mtk_stp_wmt.ko", "") == 0) {
-        log_line("Loaded MT6572 WMT combo driver from .system/bt.\n");
-    } else if (load_kernel_module("/mnt/sdcard/.rockbox/bt/mtk_stp_wmt.ko", "") == 0) {
-        log_line("Loaded MT6572 WMT combo driver from SD card.\n");
-    }
-
-    if (load_kernel_module("/lib/modules/mtk_stp_bt.ko", "") == 0) {
-        log_line("Loaded MT6572 STP Bluetooth driver (mtk_stp_bt.ko).\n");
-    } else if (load_kernel_module("/mnt/sdcard/.system/bt/mtk_stp_bt.ko", "") == 0) {
-        log_line("Loaded MT6572 STP Bluetooth driver from .system/bt.\n");
-    } else if (load_kernel_module("/mnt/sdcard/.rockbox/bt/mtk_stp_bt.ko", "") == 0) {
-        log_line("Loaded MT6572 STP Bluetooth driver from SD card.\n");
-    }
-
     if (access("/dev/stpwmt", F_OK) != 0) mknod("/dev/stpwmt", S_IFCHR | 0666, makedev(190, 0));
     if (access("/dev/stpbt",  F_OK) != 0) mknod("/dev/stpbt",  S_IFCHR | 0666, makedev(192, 0));
-
-    /* Fork background WMT firmware launcher daemon (replaces 6620_launcher -m 3 -p /etc/firmware) */
-    pid_t wmt_pid = fork();
-    if (wmt_pid == 0) {
-        int wmt_fd = -1;
-        for (int retry = 0; retry < 20; retry++) {
-            wmt_fd = open("/dev/stpwmt", O_RDWR | O_NOCTTY);
-            if (wmt_fd >= 0) break;
-            usleep(200000);
-        }
-        if (wmt_fd < 0) _exit(1);
-
-        ioctl(wmt_fd, WMT_IOCTL_SET_PATCH_NAME, "/etc/firmware");
-        ioctl(wmt_fd, WMT_IOCTL_SET_STP_MODE, (3 & 0x0F) | 0x20); /* Mode 3: BTIF */
-        ioctl(wmt_fd, WMT_IOCTL_PORT_NAME, 0);
-
-        struct pollfd pfd;
-        pfd.fd = wmt_fd;
-        pfd.events = POLLIN;
-
-        while (1) {
-            int pr = poll(&pfd, 1, -1);
-            if (pr > 0 && (pfd.revents & POLLIN)) {
-                char cmd[256] = {0};
-                ssize_t rb = read(wmt_fd, cmd, 255);
-                if (rb > 0 && strncmp(cmd, "srh_patch", 9) == 0) {
-                    (void)ioctl(wmt_fd, WMT_IOCTL_QUERY_CHIP_ID, 0);
-                    (void)ioctl(wmt_fd, WMT_IOCTL_GET_CHIP_INFO, 2);
-
-                    const char *patch_path = "/etc/firmware/mt6572_82_patch_e1_0_hdr.bin";
-                    int pfd_bin = open(patch_path, O_RDONLY);
-                    if (pfd_bin >= 0) {
-                        unsigned char hdr[28] = {0};
-                        if (read(pfd_bin, hdr, sizeof(hdr)) == sizeof(hdr)) {
-                            int patch_num = (hdr[24] >> 4) & 0x0F;
-                            int dl_seq    = hdr[24] & 0x0F;
-                            if (patch_num <= 0) patch_num = 1;
-                            if (dl_seq <= 0) dl_seq = 1;
-
-                            ioctl(wmt_fd, WMT_IOCTL_SET_PATCH_NUM, patch_num);
-
-                            struct wmt_patch_info pinfo;
-                            memset(&pinfo, 0, sizeof(pinfo));
-                            pinfo.download_seq = dl_seq;
-                            pinfo.addresse[0] = 0;
-                            pinfo.addresse[1] = (char)hdr[25];
-                            pinfo.addresse[2] = (char)hdr[26];
-                            pinfo.addresse[3] = (char)hdr[27];
-                            strncpy(pinfo.patch_name, patch_path, sizeof(pinfo.patch_name) - 1);
-
-                            ioctl(wmt_fd, WMT_IOCTL_SET_PATCH_INFO, &pinfo);
-                        }
-                        close(pfd_bin);
-                    }
-                    (void)!write(wmt_fd, "ok", 2);
-                }
-            }
-        }
-        _exit(0);
-    }
 }
 
 static void enable_touch_keys(void)
@@ -1635,6 +1780,155 @@ static void enable_touch_keys(void)
         close(fd);
         log_line("Touch keypad scanning enabled (/proc/tpd_keys_enable).\n");
     }
+}
+
+static void force_hardware_shutdown(void)
+{
+    int kfd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
+    if (kfd >= 0) {
+        const char *msg = "<0>[watchdog] Play/Pause held for 10s: Forceful hardware shutdown triggered!\n";
+        (void)!write(kfd, msg, strlen(msg));
+        close(kfd);
+    }
+    sync();
+    reboot(RB_POWER_OFF);
+    (void)!system("/bin/busybox poweroff -f");
+    (void)!system("/sbin/poweroff");
+    while (1) {
+        sleep(1);
+    }
+}
+
+static void play_shutdown_watchdog_loop(void)
+{
+    int event_fds[16];
+    int num_fds = 0;
+
+    while (1) {
+        num_fds = 0;
+        for (int i = 0; i < 16; i++) {
+            char path[32];
+            snprintf(path, sizeof(path), "/dev/input/event%d", i);
+            int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+            if (fd >= 0) {
+                char name[64] = {0};
+                if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name) >= 0) {
+                    if (strstr(name, "ACCDET") != NULL || strstr(name, "accdet") != NULL) {
+                        close(fd);
+                        continue;
+                    }
+                }
+                event_fds[num_fds++] = fd;
+            }
+        }
+
+        if (num_fds == 0) {
+            usleep(250000);
+            continue;
+        }
+
+        struct pollfd pfds[16];
+        int play_held = 0;
+        struct timespec press_start_ts;
+        memset(&press_start_ts, 0, sizeof(press_start_ts));
+
+        while (1) {
+            for (int i = 0; i < num_fds; i++) {
+                pfds[i].fd = event_fds[i];
+                pfds[i].events = POLLIN;
+                pfds[i].revents = 0;
+            }
+
+            int timeout_ms = play_held ? 100 : 500;
+            int pr = poll(pfds, num_fds, timeout_ms);
+            if (pr < 0 && errno == EINTR) {
+                continue;
+            }
+
+            int dev_error = 0;
+            if (pr > 0) {
+                for (int i = 0; i < num_fds; i++) {
+                    if (pfds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+                        dev_error = 1;
+                        break;
+                    }
+                    if (pfds[i].revents & POLLIN) {
+                        struct input_event ev;
+                        while (read(pfds[i].fd, &ev, sizeof(ev)) == sizeof(ev)) {
+                            if (ev.type == EV_KEY &&
+                                (ev.code == 164 /* KEY_PLAYPAUSE */ ||
+                                 ev.code == 207 /* KEY_PLAY */ ||
+                                 ev.code == 119 /* KEY_PAUSE */ ||
+                                 ev.code == 200 /* KEY_PLAYCD */)) {
+                                if (ev.value == 1) {
+                                    if (!play_held) {
+                                        play_held = 1;
+                                        clock_gettime(CLOCK_MONOTONIC, &press_start_ts);
+                                    }
+                                } else if (ev.value == 0) {
+                                    play_held = 0;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (dev_error) {
+                for (int i = 0; i < num_fds; i++) {
+                    if (event_fds[i] >= 0) close(event_fds[i]);
+                }
+                break;
+            }
+
+            /* Query hardware key state via EVIOCGKEY to prevent missed releases or start while already pressed */
+            int key_pressed_now = 0;
+            uint8_t key_bits[KEY_MAX / 8 + 1];
+            for (int i = 0; i < num_fds; i++) {
+                memset(key_bits, 0, sizeof(key_bits));
+                if (ioctl(event_fds[i], EVIOCGKEY(sizeof(key_bits)), key_bits) >= 0) {
+                    if ((key_bits[164 / 8] & (1 << (164 % 8))) ||
+                        (key_bits[207 / 8] & (1 << (207 % 8))) ||
+                        (key_bits[119 / 8] & (1 << (119 % 8))) ||
+                        (key_bits[200 / 8] & (1 << (200 % 8)))) {
+                        key_pressed_now = 1;
+                        break;
+                    }
+                }
+            }
+
+            if (!key_pressed_now) {
+                play_held = 0;
+            } else {
+                if (!play_held) {
+                    play_held = 1;
+                    clock_gettime(CLOCK_MONOTONIC, &press_start_ts);
+                } else {
+                    struct timespec now_ts;
+                    clock_gettime(CLOCK_MONOTONIC, &now_ts);
+                    long elapsed_ms = (now_ts.tv_sec - press_start_ts.tv_sec) * 1000 +
+                                      (now_ts.tv_nsec - press_start_ts.tv_nsec) / 1000000;
+                    if (elapsed_ms >= 10000) {
+                        force_hardware_shutdown();
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void start_play_shutdown_watchdog(void)
+{
+    pid_t pid = fork();
+    if (pid < 0) {
+        log_line("WARNING: Failed to fork Play/Pause shutdown watchdog!\n");
+        return;
+    }
+    if (pid == 0) {
+        play_shutdown_watchdog_loop();
+        _exit(0);
+    }
+    log_line("Hardware 10s Play/Pause power-off watchdog started.\n");
 }
 
 static int is_usb_power_online(void)
@@ -1744,6 +2038,7 @@ int main(int argc, char *argv[])
     make_device_nodes();
     clear_android_bcb();
     enable_touch_keys();
+    start_play_shutdown_watchdog();
 
     int menu_held = is_menu_button_held_at_boot();
 
@@ -1885,9 +2180,9 @@ int main(int argc, char *argv[])
         /* Link all MicroSD user files/directories to root / for plugins */
         link_sdcard_to_root();
 
-        /* Launch target application (/mnt/sdcard/.system/app or /mnt/sdcard/.rockbox/rockbox) */
-        setenv("PATH", "/mnt/sdcard/.system/bin:/mnt/sdcard/.rockbox/bin:/bin:/sbin:/usr/bin:/usr/sbin", 1);
-        setenv("LD_LIBRARY_PATH", "/mnt/sdcard/.system/lib:/mnt/sdcard/.rockbox/lib:/lib:/usr/lib", 1);
+        /* Launch target application from MicroSD card */
+        setenv("PATH", "/bin:/sbin:/usr/bin:/usr/sbin:/mnt/sdcard/.system/bin:/mnt/sdcard/.rockbox/bin:/mnt/sdcard/.meui/bin:/mnt/sdcard/.podi/bin:/mnt/sdcard/.custom/bin", 1);
+        setenv("LD_LIBRARY_PATH", "/mnt/sdcard/.meui/lib:/mnt/sdcard/.podi/lib:/mnt/sdcard/.custom/lib:/mnt/sdcard/.system/lib:/mnt/sdcard/.rockbox/lib:/lib:/usr/lib", 1);
         setenv("HOME", "/mnt/sdcard", 1);
         setenv("TERM", "linux", 1);
 
