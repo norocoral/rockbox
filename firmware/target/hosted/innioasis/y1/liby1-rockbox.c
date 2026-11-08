@@ -10,6 +10,15 @@
  ****************************************************************************/
 
 #define RB_FILESYSTEM_OS
+#if defined(__has_include) && __has_include("../../../../../../!nugget/main/liby1/src/y1_core.c")
+#include "../../../../../../!nugget/main/liby1/src/y1_core.c"
+#include "../../../../../../!nugget/main/liby1/src/y1_display.c"
+#include "../../../../../../!nugget/main/liby1/src/y1_cpu.c"
+#include "../../../../../../!nugget/main/liby1/src/y1_input.c"
+#include "../../../../../../!nugget/main/liby1/src/y1_audio.c"
+#include "../../../../../../!nugget/main/liby1/src/y1_tuner.c"
+#include "../../../../../../!nugget/main/liby1/src/y1_usb.c"
+#else
 #include "../../../../../hosted_linux_port/liby1/src/y1_core.c"
 #include "../../../../../hosted_linux_port/liby1/src/y1_display.c"
 #include "../../../../../hosted_linux_port/liby1/src/y1_cpu.c"
@@ -17,4 +26,5 @@
 #include "../../../../../hosted_linux_port/liby1/src/y1_audio.c"
 #include "../../../../../hosted_linux_port/liby1/src/y1_tuner.c"
 #include "../../../../../hosted_linux_port/liby1/src/y1_usb.c"
+#endif
 

@@ -6,13 +6,14 @@
 #                     \/            \/     \/    \/            \/
 #
 
-INCLUDES += -I$(FIRMDIR)/include -I$(FIRMDIR)/export $(TARGET_INC) -I$(BUILDDIR) -I$(APPSDIR) -I$(ROOTDIR)/hosted_linux_port/liby1/include
+LIBY1_DIR ?= $(firstword $(wildcard $(ROOTDIR)/../../!nugget/main/liby1) $(wildcard $(ROOTDIR)/hosted_linux_port/liby1))
+INCLUDES += -I$(FIRMDIR)/include -I$(FIRMDIR)/export $(TARGET_INC) -I$(BUILDDIR) -I$(APPSDIR) -I$(LIBY1_DIR)/include
 
 SIMFLAGS += $(INCLUDES) $(DEFINES) -DHAVE_CONFIG_H $(GCCOPTS)
 
 .SECONDEXPANSION:
 
-$(BUILDDIR)/firmware/target/hosted/innioasis/y1/liby1-rockbox.o $(OBJDIR)/firmware/target/hosted/innioasis/y1/liby1-rockbox.o: $(wildcard $(ROOTDIR)/hosted_linux_port/liby1/src/*.c) $(wildcard $(ROOTDIR)/hosted_linux_port/liby1/include/*.h)
+$(BUILDDIR)/firmware/target/hosted/innioasis/y1/liby1-rockbox.o $(OBJDIR)/firmware/target/hosted/innioasis/y1/liby1-rockbox.o: $(wildcard $(LIBY1_DIR)/src/*.c) $(wildcard $(LIBY1_DIR)/include/*.h)
 
 $(BUILDDIR)/rockbox.elf : $$(OBJ) $(FIRMLIB) $(VOICESPEEXLIB) $(CORE_LIBS)
 	$(call PRINTS,LD $(@F))$(CC) $(GCCOPTS) -o $@ $(OBJ) \
