@@ -118,6 +118,10 @@ void system_init(void)
     int *s;
     /* fake stack, to make thread-internal.h happy */
     stackbegin = stackend = (uintptr_t*)&s;
+
+    /* Ignore SIGHUP so terminal disconnects or background execution do not kill Rockbox */
+    signal(SIGHUP, SIG_IGN);
+
    /* catch some signals for easier debugging */
     struct sigaction sa;
     sigfillset(&sa.sa_mask);
@@ -128,7 +132,6 @@ void system_init(void)
     sigaction(SIGFPE, &sa, NULL);
     sigaction(SIGSEGV, &sa, NULL);
     sigaction(SIGPIPE, &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGBUS, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 }

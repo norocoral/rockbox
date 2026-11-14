@@ -18793,3 +18793,45 @@
     *: "Reboot to Android"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_SWITCH_TO_ROCKWHEEL
+  desc: in Settings -> Nugget
+  user: core
+  <source>
+    *: "Switch to RockWheel"
+  </source>
+  <dest>
+    *: "Switch to RockWheel"
+  </dest>
+  <voice>
+    *: "Switch to RockWheel"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_SWITCH_TO_ROCKBOX
+  desc: in Settings -> Nugget
+  user: core
+  <source>
+    *: "Switch to Rockbox"
+  </source>
+  <dest>
+    *: "Switch to Rockbox"
+  </dest>
+  <voice>
+    *: "Switch to Rockbox"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_ROCKWHEEL
+  desc: player name
+  user: core
+  <source>
+    *: "RockWheel"
+  </source>
+  <dest>
+    *: "RockWheel"
+  </dest>
+  <voice>
+    *: "RockWheel"
+  </voice>
+</phrase>

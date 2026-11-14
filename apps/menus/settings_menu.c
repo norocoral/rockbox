@@ -475,6 +475,21 @@ static int y1_reboot_to_android_action(void)
 }
 MENUITEM_FUNCTION(y1_reboot_to_android_item, 0, ID2P(LANG_REBOOT_TO_ANDROID),
                   y1_reboot_to_android_action, NULL, Icon_System_menu);
+
+static int y1_switch_to_rockwheel_action(void)
+{
+    int fd = open("/mnt/sdcard/.system/default_player", O_CREAT | O_WRONLY | O_TRUNC, 0666);
+    if (fd >= 0) {
+        write(fd, "rockwheel\n", 10);
+        close(fd);
+        sync();
+    }
+    splash(HZ, ID2P(LANG_SWITCH_TO_ROCKWHEEL));
+    sys_reboot();
+    return 0;
+}
+MENUITEM_FUNCTION(y1_switch_to_rockwheel_item, 0, ID2P(LANG_SWITCH_TO_ROCKWHEEL),
+                  y1_switch_to_rockwheel_action, NULL, Icon_System_menu);
 MENUITEM_SETTING(y1_bt_enable_item, &global_settings.bt_enabled, NULL);
 MENUITEM_SETTING(y1_bt_connected_device_full_volume_item, &global_settings.bt_connected_device_full_volume, NULL);
 MENUITEM_SETTING(y1_rich_album_view_item, &global_settings.y1_rich_album_view, NULL);
@@ -910,6 +925,7 @@ MAKE_MENU(nugget_device_menu, ID2P(LANG_DEVICE), 0, Icon_NOICON,
 MAKE_MENU(nugget_menu, ID2P(LANG_NUGGET), 0, Icon_NOICON,
           &nugget_device_menu,
           &y1_bootloader_menu_item,
+          &y1_switch_to_rockwheel_item,
           &y1_reboot_to_android_item);
 
 static int y1_video_select_dir_func(void)

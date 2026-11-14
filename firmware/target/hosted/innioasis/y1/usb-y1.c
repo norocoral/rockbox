@@ -12,6 +12,7 @@
 
 #include <stdbool.h>
 #include <unistd.h>
+#include <string.h>
 #include "config.h"
 #include "disk.h"
 #include "usb.h"
@@ -21,20 +22,35 @@
 
 static bool y1_charge_only = false;
 
+static bool y1_is_serial_terminal_session(void)
+{
+    if (y1_usb_is_serial_active())
+        return true;
+
+    const char *tty = ttyname(STDIN_FILENO);
+    if (tty && strstr(tty, "ttyGS") != NULL)
+        return true;
+
+    return false;
+}
+
 bool y1_is_charge_only_mode(void)
 {
-    return y1_charge_only;
+    return y1_charge_only || y1_is_serial_terminal_session();
 }
 
 void y1_usb_attach_storage(void)
 {
+    if (y1_is_serial_terminal_session())
+        return;
     y1_usb_attach_mass_storage();
 }
 
 void y1_usb_eject_to_charge_only(void)
 {
     y1_charge_only = true;
-    y1_usb_detach_mass_storage();
+    if (!y1_is_serial_terminal_session())
+        y1_usb_detach_mass_storage();
     sync();
     usb_release_exclusive_storage();
 }
@@ -45,6 +61,9 @@ int usb_detect(void)
     static bool cached_present = false;
     extern volatile long current_tick;
     extern bool y1_is_screen_sleeping(void);
+
+    if (y1_is_serial_terminal_session())
+        return USB_EXTRACTED;
 
     long now = current_tick;
     long interval = y1_is_screen_sleeping() ? (2 * HZ) : (HZ / 2);
@@ -69,6 +88,9 @@ int usb_detect(void)
 
 void usb_enable(bool on)
 {
+    if (y1_is_serial_terminal_session())
+        return;
+
     if (on)
         y1_usb_attach_mass_storage();
     else
@@ -77,6 +99,9 @@ void usb_enable(bool on)
 
 void usb_init_device(void)
 {
+    if (y1_is_serial_terminal_session())
+        return;
+
     if (usb_detect() == USB_INSERTED)
         y1_usb_attach_mass_storage();
     else
@@ -91,6 +116,7 @@ int disk_mount_all(void)
 
 int disk_unmount_all(void)
 {
-    y1_usb_attach_mass_storage();
+    if (!y1_is_serial_terminal_session())
+        y1_usb_attach_mass_storage();
     return 1;
 }

@@ -18737,3 +18737,45 @@
     *: "안드로이드로 재부팅"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_SWITCH_TO_ROCKWHEEL
+  desc: in Settings -> Nugget
+  user: core
+  <source>
+    *: "Switch to RockWheel"
+  </source>
+  <dest>
+    *: "RockWheel로 전환"
+  </dest>
+  <voice>
+    *: "RockWheel로 전환"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_SWITCH_TO_ROCKBOX
+  desc: in Settings -> Nugget
+  user: core
+  <source>
+    *: "Switch to Rockbox"
+  </source>
+  <dest>
+    *: "Rockbox로 전환"
+  </dest>
+  <voice>
+    *: "Rockbox로 전환"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_ROCKWHEEL
+  desc: player name
+  user: core
+  <source>
+    *: "RockWheel"
+  </source>
+  <dest>
+    *: "RockWheel"
+  </dest>
+  <voice>
+    *: "RockWheel"
+  </voice>
+</phrase>

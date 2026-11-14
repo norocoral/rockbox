@@ -97,6 +97,8 @@ static int last_bl = -1;
 #include "lcd-target.h"
 #include "innioasis/y1/bt-y1.h"
 #include "innioasis/y1/y1-log.h"
+#include "innioasis/y1/usb-y1.h"
+#include "usb.h"
 #include "action.h"
 #include "liby1.h"
 
@@ -236,6 +238,13 @@ void lcd_sleep(void)
     y1_logf("[backlight-unix] lcd_sleep: calling lcd_enable(false)\n");
     lcd_enable(false);
 #endif
+
+    /* Do NOT enter early suspend or clamp CPU while USB Mass Storage is active */
+    if (y1_usb_is_storage_attached() || (usb_detect() == USB_INSERTED && !y1_is_charge_only_mode()))
+    {
+        y1_log("[backlight-unix] lcd_sleep: USB mass storage active, keeping USB bus and CPU awake\n");
+        return;
+    }
 
     y1_set_screen_off_power_mode(true);
 

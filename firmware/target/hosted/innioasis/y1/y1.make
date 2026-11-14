@@ -6,7 +6,12 @@
 #                     \/            \/     \/    \/            \/
 #
 
-LIBY1_DIR ?= $(firstword $(wildcard $(ROOTDIR)/../../!nugget/main/liby1) $(wildcard $(ROOTDIR)/hosted_linux_port/liby1))
+LIBY1_DIR ?= $(patsubst %/include/liby1.h,%,$(firstword \
+	$(wildcard $(ROOTDIR)/vendor/liby1/include/liby1.h) \
+	$(wildcard $(ROOTDIR)/../../../!nugget/main/liby1/include/liby1.h) \
+	$(wildcard $(ROOTDIR)/../../!nugget/main/liby1/include/liby1.h) \
+	$(wildcard $(ROOTDIR)/hosted_linux_port/liby1/include/liby1.h)))
+TARGET_INC += -I$(LIBY1_DIR)/include
 INCLUDES += -I$(FIRMDIR)/include -I$(FIRMDIR)/export $(TARGET_INC) -I$(BUILDDIR) -I$(APPSDIR) -I$(LIBY1_DIR)/include
 
 SIMFLAGS += $(INCLUDES) $(DEFINES) -DHAVE_CONFIG_H $(GCCOPTS)
