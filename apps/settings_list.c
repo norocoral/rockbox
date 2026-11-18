@@ -38,6 +38,9 @@
 #include "rbpaths.h"
 #include "settings_list.h"
 #include "usb.h"
+#if defined(INNIOASIS_Y1)
+#include "usb-y1.h"
+#endif
 #include "audio.h"
 #include "power.h"
 #include "powermgmt.h"
@@ -91,6 +94,19 @@ static void bt_receiver_full_volume_setting_changed(bool enabled)
 }
 extern void y1_set_resolution_setting(int mode);
 extern void y1_apply_resolution_setting(int mode);
+static void y1_ipod_usb_mode_changed(bool enabled)
+{
+#ifndef __PCTOOL__
+    extern void y1_usb_set_ipod_mode(bool enabled);
+    extern void y1_ipod_native_invalidate(void);
+    extern void tagcache_reload_after_usb(void);
+    y1_usb_set_ipod_mode(enabled);
+    y1_ipod_native_invalidate();
+    tagcache_reload_after_usb();
+#else
+    (void)enabled;
+#endif
+}
 #endif
 
 #define UNUSED {.RESERVED=NULL}
@@ -1915,7 +1931,7 @@ const struct settings_list settings[] = {
     TEXT_SETTING(0, autoresume_paths, "autoresume next track paths",
                  "/podcast:/podcasts", NULL, NULL),
 
-    OFFON_SETTING(0, runtimedb, LANG_RUNTIMEDB_ACTIVE, false,
+    OFFON_SETTING(0, runtimedb, LANG_RUNTIMEDB_ACTIVE, true,
                   "gather runtime data", NULL),
     TEXT_SETTING(0, tagcache_scan_paths, "database scan paths",
                  DEFAULT_TAGCACHE_SCAN_PATHS, NULL, NULL),
@@ -2862,6 +2878,12 @@ const struct settings_list settings[] = {
                   true,
                   "video show thumbs",
                   NULL),
+    OFFON_SETTING(0,
+                  y1_ipod_usb_mode,
+                  LANG_Y1_IPOD_USB_MODE,
+                  true,
+                  "y1 ipod usb mode",
+                  y1_ipod_usb_mode_changed),
 #endif
 #if !defined(SIMULATOR) && !defined(USB_NONE) && (defined(HAVE_USB_ADB) || defined(HAVE_USB_POWER))
     CHOICE_SETTING(0,

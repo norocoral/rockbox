@@ -33,6 +33,14 @@
 #include "usb.h"
 #endif
 
+#if defined(INNIOASIS_Y1)
+extern bool y1_is_screen_sleeping(void);
+static inline long y1_poll_interval(long active_ticks, long sleep_ticks)
+{
+    return y1_is_screen_sleeping() ? sleep_ticks : active_ticks;
+}
+#endif
+
 #ifdef BATTERY_DEV_NAME
 # define BATTERY_SYSFS_PATH     "/sys/class/power_supply/" BATTERY_DEV_NAME
 # define BATTERY_STATUS_PATH    BATTERY_SYSFS_PATH "/status"
@@ -78,7 +86,12 @@ static bool last_power = false;
 
 bool charging_state(void)
 {
-    if (last_tick == 0 || (current_tick - last_tick) > 5 * HZ) {
+#if defined(INNIOASIS_Y1)
+    long interval = y1_poll_interval(10 * HZ, 30 * HZ);
+#else
+    long interval = 5 * HZ;
+#endif
+    if (last_tick == 0 || (current_tick - last_tick) > interval) {
         char buf[12] = {0};
         sysfs_get_string(BATTERY_STATUS_PATH, buf, sizeof(buf));
 
@@ -114,8 +127,13 @@ int _battery_level(void)
     static long last_lvl_tick = 0;
     static int last_lvl = 0;
     long now = current_tick;
+#if defined(INNIOASIS_Y1)
+    long interval = y1_poll_interval(10 * HZ, 30 * HZ);
+#else
+    long interval = 5 * HZ;
+#endif
 
-    if (last_lvl_tick == 0 || (now - last_lvl_tick) > 5 * HZ) {
+    if (last_lvl_tick == 0 || (now - last_lvl_tick) > interval) {
         int level = 0;
         sysfs_get_int(BATTERY_LEVEL_PATH, &level);
         last_lvl = (level * BATTERY_LEVEL_SCALE_MUL) / BATTERY_LEVEL_SCALE_DIV;
@@ -141,8 +159,13 @@ unsigned int power_input_status(void)
     static long last_pwr_tick = 0;
     static unsigned int last_status = POWER_INPUT_NONE;
     long now = current_tick;
+#if defined(INNIOASIS_Y1)
+    long interval = y1_poll_interval(5 * HZ, 15 * HZ);
+#else
+    long interval = 2 * HZ;
+#endif
 
-    if (last_pwr_tick == 0 || (now - last_pwr_tick) > 2 * HZ) {
+    if (last_pwr_tick == 0 || (now - last_pwr_tick) > interval) {
         int present = 0;
         bool ok = sysfs_get_int(POWER_STATUS_PATH, &present);
         if (!ok || present <= 0) {

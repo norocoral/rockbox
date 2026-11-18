@@ -34,6 +34,9 @@
 #include "jpeg_load.h"
 #include "playback.h"
 #endif
+#ifdef INNIOASIS_Y1
+#include "liby1.h"
+#endif
 #include "buffering.h"
 #include "linked_list.h"
 
@@ -863,6 +866,39 @@ static int load_image(int fd, const char *path,
 #endif
     const int format = FORMAT_NATIVE | FORMAT_DITHER |
                        FORMAT_RESIZE | FORMAT_KEEP_ASPECT;
+#ifdef INNIOASIS_Y1
+    if (strncmp(path, "ithmb://", 8) == 0) {
+        uint16_t *src = NULL;
+        int sw = 0, sh = 0;
+        if (y1_ipod_native_load_albumart_rgb565(path + 8, &src, &sw, &sh) &&
+            src && sw > 0 && sh > 0) {
+            int dw = dim->width, dh = dim->height;
+            if (dw * sh > dh * sw)
+                dw = (dh * sw + sh / 2) / sh;
+            else
+                dh = (dw * sh + sw / 2) / sw;
+            if (dw < 1) dw = 1;
+            if (dh < 1) dh = 1;
+            size_t need = (size_t)dw * (size_t)dh * sizeof(uint16_t);
+            if (need + sizeof(struct bitmap) <= max_size) {
+                uint16_t *dst = (uint16_t *)bmp->data;
+                for (int y = 0; y < dh; y++) {
+                    int sy = (y * sh) / dh;
+                    for (int x = 0; x < dw; x++) {
+                        int sx = (x * sw) / dw;
+                        dst[y * dw + x] = src[sy * sw + sx];
+                    }
+                }
+                bmp->width = dw;
+                bmp->height = dh;
+                free(src);
+                return (int)(sizeof(struct bitmap) + need);
+            }
+            free(src);
+        }
+        return -1;
+    }
+#endif
 #ifdef HAVE_JPEG
     if (aa != NULL) {
         lseek(fd, aa->pos, SEEK_SET);
@@ -953,8 +989,12 @@ int bufopen(const char *file, off_t offset, enum data_type type,
         return ERR_UNSUPPORTED_TYPE;
 #endif
     /* Other cases: there is a little more work. */
-    int fd = open(file, O_RDONLY);
-    if (fd < 0)
+    bool is_ithmb = false;
+#if defined(INNIOASIS_Y1) && defined(HAVE_ALBUMART)
+    is_ithmb = (type == TYPE_BITMAP && strncmp(file, "ithmb://", 8) == 0);
+#endif
+    int fd = is_ithmb ? -1 : open(file, O_RDONLY);
+    if (!is_ithmb && fd < 0)
         return ERR_FILE_ERROR;
 
     size_t size = 0;
@@ -1004,7 +1044,8 @@ int bufopen(const char *file, off_t offset, enum data_type type,
     if (!h) {
         DEBUGF("%s(): failed to add handle\n", __func__);
         mutex_unlock(&llist_mutex);
-        close(fd);
+        if (fd >= 0)
+            close(fd);
 
         /*warn playback.c if it is trying to buffer too large of an image*/
         if(type == TYPE_BITMAP && padded_size >= buffer_len - 64*1024)
@@ -1070,7 +1111,8 @@ int bufopen(const char *file, off_t offset, enum data_type type,
         queue_send(&buffering_queue, Q_BUFFER_HANDLE, handle_id);
     } else {
         /* Other types will get buffered in the course of normal operations */
-        close(fd);
+        if (fd >= 0)
+            close(fd);
 
         if (handle_id >= 0) {
             /* Inform the buffering thread that we added a handle */

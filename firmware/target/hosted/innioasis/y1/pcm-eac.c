@@ -6,7 +6,7 @@
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
  *
- * Copyright (C) 2026 Rockbox Innioasis Y1 Port
+ * Copyright (C) 2026 Nugget Y1
  * MediaTek MT6572 direct /dev/eac PCM Sink Driver via liby1
  ****************************************************************************/
 
@@ -290,7 +290,7 @@ static void *pcm_worker(void *arg)
             {
                 struct timespec ts;
                 clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_sec += 5;
+                ts.tv_sec += 2;
                 int rc = pthread_cond_timedwait(&pcm_cond, &pcm_mtx, &ts);
                 if (rc == ETIMEDOUT && dma_stopped == 1 &&
                     !y1_audio_receiver_is_active() && audio_output_enabled)
@@ -598,16 +598,11 @@ static int active_mic_source = Y1_MIC_INTERNAL;
 
 int y1_get_effective_mic_source(void)
 {
-    int sel = global_settings.y1_mic_source;
-    if (sel == Y1_MIC_AUTO) {
-        if (y1_bt_is_connected())
-            return Y1_MIC_BLUETOOTH;
-        else if (headphones_has_mic())
-            return Y1_MIC_HEADPHONE;
-        else
-            return Y1_MIC_INTERNAL;
-    }
-    return sel;
+    if (y1_bt_is_connected())
+        return Y1_MIC_BLUETOOTH;
+    if (headphones_has_mic())
+        return Y1_MIC_HEADPHONE;
+    return Y1_MIC_INTERNAL;
 }
 
 void y1_mic_source_changed(int source)
@@ -646,17 +641,21 @@ static void *rec_worker(void *arg)
         if (rec_pcm_data && rec_pcm_size > 0)
         {
             ssize_t bytes_read = -1;
+            size_t chunk = rec_pcm_size > 4096 ? 4096 : rec_pcm_size;
             if (active_mic_source == Y1_MIC_BLUETOOTH)
             {
-                bytes_read = y1_bt_read_mic_pcm(rec_pcm_data, rec_pcm_size > 4096 ? 4096 : rec_pcm_size);
+                bytes_read = y1_bt_read_mic_pcm(rec_pcm_data, chunk);
+            }
+            else
+            {
+                bytes_read = y1_audio_rec_read(rec_pcm_data, chunk);
             }
 
             if (bytes_read <= 0)
             {
-                size_t fill_chunk = rec_pcm_size > 4096 ? 4096 : rec_pcm_size;
-                memset(rec_pcm_data, 0, fill_chunk);
+                memset(rec_pcm_data, 0, chunk);
                 usleep(20000);
-                bytes_read = (ssize_t)fill_chunk;
+                bytes_read = (ssize_t)chunk;
             }
 
             rec_pcm_data = (char *)rec_pcm_data + bytes_read;
@@ -736,7 +735,7 @@ void audiohw_enable_recording(bool source_mic)
     if (!source_mic)
     {
         active_mic_source = -1;
-        y1_audio_enable_recording_path(Y1_REC_SOURCE_LINE_FM);
+        y1_audio_rec_start(Y1_REC_SOURCE_LINE_FM, 48000);
         y1_log("[pcm-eac] FM Radio / Line recording hardware path enabled\n");
         return;
     }
@@ -745,17 +744,17 @@ void audiohw_enable_recording(bool source_mic)
 
     if (active_mic_source == Y1_MIC_BLUETOOTH)
     {
-        y1_audio_disable_recording_path();
+        y1_audio_rec_stop();
         y1_bt_start_mic();
         y1_log("[pcm-eac] Bluetooth Handset Microphone selected\n");
         return;
     }
 
     if (active_mic_source == Y1_MIC_HEADPHONE) {
-        y1_audio_enable_recording_path(Y1_REC_SOURCE_HEADPHONE_MIC);
+        y1_audio_rec_start(Y1_REC_SOURCE_HEADPHONE_MIC, 48000);
         y1_log("[pcm-eac] Wired Headphone Mic (ACC_MIC) selected\n");
     } else {
-        y1_audio_enable_recording_path(Y1_REC_SOURCE_INTERNAL_MIC);
+        y1_audio_rec_start(Y1_REC_SOURCE_INTERNAL_MIC, 48000);
         y1_log("[pcm-eac] Built-in Internal Mic (MIC_P1) selected\n");
     }
 }
@@ -766,7 +765,7 @@ void audiohw_disable_recording(void)
     {
         y1_bt_stop_mic();
     }
-    y1_audio_disable_recording_path();
+    y1_audio_rec_stop();
     active_mic_source = Y1_MIC_INTERNAL;
     y1_log("[pcm-eac] Microphone / Recording hardware path disabled\n");
 }

@@ -426,6 +426,11 @@ static void scan_dir_recursive(const char *dir_path, int depth)
                 }
                 if (extract_thumbs && meta.has_thumb) {
                     e->has_thumb = save_thumbnail_cache(e->thumb_crc, g_thumb_buf) ? 1 : 0;
+                } else {
+                    char tpath[MAX_PATH];
+                    get_thumb_cache_path(e->thumb_crc, tpath, sizeof(tpath));
+                    if (rb->file_exists(tpath))
+                        e->has_thumb = 1;
                 }
             }
         }
@@ -459,6 +464,9 @@ static void rebuild_video_database(bool show_splash)
     g_db_count = 0;
     g_db_loaded = true;
     scan_dir_recursive(vdir, 0);
+    if (rb->file_exists("/iPod_Control/iTunes/iTunesDB") && rb->dir_exists("/iPod_Control/Music")) {
+        scan_dir_recursive("/iPod_Control/Music", 0);
+    }
 
     if (g_db_count > 1) {
         rb->qsort(g_db, (size_t)g_db_count, sizeof(struct y1_video_db_entry), db_cmp_title);

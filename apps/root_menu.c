@@ -76,6 +76,7 @@
 #if defined(INNIOASIS_Y1)
 #include "bt-y1.h"
 #include "audio.h"
+#include "liby1.h"
 static int bt_receiver_screen(void *param);
 #endif
 
@@ -179,6 +180,13 @@ static int browser(void* param)
         break;
 #ifdef HAVE_TAGCACHE
         case GO_TO_DBBROWSER:
+#ifdef INNIOASIS_Y1
+            if (y1_usb_get_ipod_mode() && !tagcache_is_usable())
+            {
+                splash(HZ*2, "Sync with iTunes to load database");
+                break;
+            }
+#endif
             if (!tagcache_is_usable())
             {
                 bool reinit_attempted = false;
@@ -423,10 +431,80 @@ static int miscscrn(void * param)
 }
 
 
+#if defined(INNIOASIS_Y1)
+static const char* native_ipod_pl_get_name(int selected_item, void *data,
+                                           char *buffer, size_t buffer_len)
+{
+    (void)data;
+    const char *name = y1_ipod_native_playlist_name(selected_item);
+    snprintf(buffer, buffer_len, "%s", name ? name : "");
+    return buffer;
+}
+
+static bool native_ipod_playlists_browser(void)
+{
+    int count = y1_ipod_native_playlist_count();
+    if (count <= 0)
+        return false;
+
+    struct gui_synclist lists;
+    gui_synclist_init(&lists, native_ipod_pl_get_name, NULL, false, 1, NULL);
+    gui_synclist_set_nb_items(&lists, count);
+    gui_synclist_set_title(&lists, str(LANG_PLAYLISTS), Icon_Playlist);
+    gui_synclist_select_item(&lists, 0);
+    gui_synclist_draw(&lists);
+
+    while (true)
+    {
+        int action = get_action(CONTEXT_LIST, TIMEOUT_BLOCK);
+        if (gui_synclist_do_button(&lists, &action))
+            continue;
+
+        if (action == ACTION_STD_OK)
+        {
+            int sel = gui_synclist_get_sel_pos(&lists);
+            int ntracks = y1_ipod_native_playlist_track_count(sel);
+            if (ntracks > 0 && playlist_create(NULL, NULL) != -1)
+            {
+                for (int i = 0; i < ntracks; i++)
+                {
+                    const char *tpath = y1_ipod_native_playlist_track_path(sel, i);
+                    if (tpath && tpath[0])
+                        playlist_insert_track(NULL, tpath, PLAYLIST_INSERT_LAST, false, false);
+                }
+                playlist_start(0, 0, 0);
+                return true;
+            }
+        }
+        else if (action == ACTION_STD_CANCEL)
+        {
+            return false;
+        }
+        else if (default_event_handler(action) == SYS_USB_CONNECTED)
+        {
+            return false;
+        }
+    }
+}
+#endif
+
 static int playlist_view_catalog(void * param)
 {
     (void)param;
     push_current_activity(ACTIVITY_PLAYLISTBROWSER);
+#if defined(INNIOASIS_Y1)
+    if (y1_ipod_native_is_active() && y1_ipod_native_playlist_count() > 0)
+    {
+        bool item_was_selected = native_ipod_playlists_browser();
+        if (item_was_selected)
+        {
+            pop_current_activity_without_refresh();
+            return GO_TO_WPS;
+        }
+        pop_current_activity();
+        return GO_TO_ROOT;
+    }
+#endif
     bool item_was_selected = catalog_view_playlists();
 
     if (item_was_selected)

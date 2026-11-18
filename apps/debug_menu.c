@@ -71,7 +71,7 @@
 #include "power.h"
 
 #if ((CONFIG_PLATFORM & PLATFORM_NATIVE) || defined(SAMSUNG_YPR0) || defined(SAMSUNG_YPR1) \
-        || defined(SONY_NWZ_LINUX)) \
+        || defined(SONY_NWZ_LINUX) || defined(INNIOASIS_Y1)) \
     && CONFIG_TUNER != 0
 #include "tuner.h"
 #include "radio.h"

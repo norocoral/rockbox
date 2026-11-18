@@ -6,7 +6,7 @@
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
  *
- * Copyright (C) 2026 Rockbox Innioasis Y1 Port
+ * Copyright (C) 2026 Nugget Y1
  * Innioasis Y1 FM Radio Tuner Driver Header
  ****************************************************************************/
 

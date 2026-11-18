@@ -192,6 +192,7 @@ struct tagcache_stat* tagcache_get_stat(void);
 int tagcache_get_commit_step(void);
 bool tagcache_prepare_shutdown(void);
 void tagcache_shutdown(void);
+void tagcache_reload_after_usb(void);
 void tagcache_remove_statefile(void);
 
 void tagcache_screensync_event(void);

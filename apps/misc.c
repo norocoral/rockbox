@@ -1668,6 +1668,14 @@ void keyclick_click(bool rawbutton, int action)
     if (!rawbutton)
         get_action_statuscode(&button);
 
+#ifndef HAS_BUTTON_HOLD
+    if (is_keys_locked() && (rawbutton || action == ACTION_NONE || action == ACTION_REDRAW))
+    {
+        keyclick_current_callback = NULL;
+        return;
+    }
+#endif
+
     /* Settings filters */
     if (
 #ifdef HAVE_HARDWARE_CLICK

@@ -6,7 +6,7 @@
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
  *
- * Copyright (C) 2026 Rockbox Innioasis Y1 Port
+ * Copyright (C) 2026 Nugget Y1
  * Native MediaTek MT6572 Bluetooth HCI + L2CAP + SDP + A2DP SBC + AVRCP Metadata
  * Reverse-engineered from MT6572 Android 4.2.2 CONNSYS (/dev/stpwmt & /dev/stpbt)
  ****************************************************************************/

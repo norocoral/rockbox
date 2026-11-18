@@ -37,6 +37,9 @@
 #include "panic.h"
 #include "menu.h"
 #include "usb.h"
+#if defined(INNIOASIS_Y1)
+#include "usb-y1.h"
+#endif
 #include "wifi.h"
 #include "powermgmt.h"
 #include "adc.h"
@@ -877,6 +880,7 @@ static void init(void)
     settings_apply_skins();
     CHART(">settings_apply_skins");
 #if defined(INNIOASIS_Y1)
+    y1_usb_set_ipod_mode(global_settings.y1_ipod_usb_mode);
     y1_boot_boost_finish();
 #endif
 }

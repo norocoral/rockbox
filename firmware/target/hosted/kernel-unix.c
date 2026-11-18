@@ -122,17 +122,17 @@ static uint64_t monotonic_ms(void)
 }
 
 #if defined(INNIOASIS_Y1)
-static bool y1_can_deep_idle_tick(uint64_t now_ms, uint64_t last_active_ms)
+static int y1_idle_tick_timeout_ms(uint64_t now_ms, uint64_t last_active_ms)
 {
-    if (now_ms - last_active_ms < 5000ULL)
-        return false;
+    if (now_ms - last_active_ms < 2000ULL)
+        return 0;
     if (!y1_is_screen_sleeping())
-        return false;
-    if (y1_playback_active() || y1_bt_is_receiver_mode() || y1_bt_is_scanning())
-        return false;
-    if (y1_button_hold_active())
-        return false;
-    return true;
+        return 0;
+    if (y1_bt_is_scanning() || y1_button_hold_active())
+        return 0;
+    if (y1_playback_active() || y1_bt_is_receiver_mode())
+        return 100;
+    return 2500;
 }
 #endif
 
@@ -148,26 +148,28 @@ static void *tick_worker(void *arg)
     {
 #if defined(INNIOASIS_Y1)
         uint64_t before_ms = monotonic_ms();
-        if (y1_can_deep_idle_tick(before_ms, last_active_ms))
+        int sleep_ms = y1_idle_tick_timeout_ms(before_ms, last_active_ms);
+        if (sleep_ms > 0)
         {
-            /* Screen is off and player is idle: block in kernel poll() on input
-             * devices for up to 2500ms so CPU 0 stays in uninterrupted SPM Deep Idle,
-             * while waking in < 1ms the instant any button is pressed. */
-            int ev = y1_wait_for_input_events(2500);
+            /* Screen is off and no hold/BT scan is pending: block in kernel poll()
+             * on input devices (100ms while playing, 2500ms while idle/paused) so
+             * CPU 0 stays in SPM Deep Idle while waking in < 1ms on any input. */
+            int ev = y1_wait_for_input_events(sleep_ms);
             uint64_t after_ms = monotonic_ms();
             uint64_t elapsed_ms = (after_ms > before_ms) ? (after_ms - before_ms) : iv_ms;
             long ticks_elapsed = (long)(elapsed_ms / iv_ms);
-            if (ev > 0)
-                last_active_ms = after_ms;
-
-            sim_enter_irq_handler();
+            if (ticks_elapsed < 1)
+                ticks_elapsed = 1;
             if (ticks_elapsed > 1)
                 current_tick += (ticks_elapsed - 1);
+            if (ev > 0)
+                last_active_ms = after_ms;
+            sim_enter_irq_handler();
             call_tick_tasks();
             sim_exit_irq_handler();
             continue;
         }
-        if (!y1_is_screen_sleeping() || y1_playback_active() || y1_button_hold_active())
+        if (!y1_is_screen_sleeping() || y1_button_hold_active() || y1_bt_is_scanning())
             last_active_ms = before_ms;
 #endif
         usleep(iv_ms * 1000U);

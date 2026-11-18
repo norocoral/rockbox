@@ -18794,20 +18794,6 @@
   </voice>
 </phrase>
 <phrase>
-  id: LANG_SWITCH_TO_ROCKWHEEL
-  desc: in Settings -> Nugget
-  user: core
-  <source>
-    *: "Switch to RockWheel"
-  </source>
-  <dest>
-    *: "Switch to RockWheel"
-  </dest>
-  <voice>
-    *: "Switch to RockWheel"
-  </voice>
-</phrase>
-<phrase>
   id: LANG_SWITCH_TO_ROCKBOX
   desc: in Settings -> Nugget
   user: core
@@ -18822,16 +18808,16 @@
   </voice>
 </phrase>
 <phrase>
-  id: LANG_ROCKWHEEL
-  desc: player name
+  id: LANG_Y1_IPOD_USB_MODE
+  desc: in Settings -> Nugget / USB
   user: core
   <source>
-    *: "RockWheel"
+    *: "iPod USB Mode (iTunes Sync)"
   </source>
   <dest>
-    *: "RockWheel"
+    *: "iPod USB Mode (iTunes Sync)"
   </dest>
   <voice>
-    *: "RockWheel"
+    *: "iPod USB Mode"
   </voice>
 </phrase>

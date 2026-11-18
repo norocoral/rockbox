@@ -56,6 +56,9 @@
 #ifdef HAVE_TAGCACHE
 #include "tagtree.h"
 #endif
+#ifdef INNIOASIS_Y1
+#include "liby1.h"
+#endif
 #include "cuesheet.h"
 #include "statusbar-skinned.h"
 #include "pitchscreen.h"
@@ -666,11 +669,20 @@ static int clipboard_paste(void)
 static int set_rating_inline(void)
 {
     struct mp3entry* id3 = audio_current_track();
-    if (id3 && id3->tagcache_idx && global_settings.runtimedb)
+#if defined(INNIOASIS_Y1)
+    bool runtime_enabled = global_settings.runtimedb || global_settings.y1_ipod_usb_mode;
+#else
+    bool runtime_enabled = global_settings.runtimedb;
+#endif
+    if (id3 && id3->tagcache_idx && runtime_enabled)
     {
         set_int_ex(str(LANG_MENU_SET_RATING), "", UNIT_INT, (void*)(&id3->rating),
                    NULL, 1, 0, 10, NULL, NULL);
         tagcache_update_numeric(id3->tagcache_idx-1, tag_rating, id3->rating);
+#ifdef INNIOASIS_Y1
+        if (y1_ipod_native_is_active())
+            y1_ipod_native_record_rating(id3->path, id3->rating);
+#endif
     }
     else
         splash(HZ*2, ID2P(LANG_ID3_NO_INFO));
@@ -684,7 +696,12 @@ static int ratingitem_callback(int action,
     (void)this_list;
     if (action == ACTION_REQUEST_MENUITEM)
     {
-        if (!selected_file.path || !global_settings.runtimedb || !tagcache_is_usable())
+#if defined(INNIOASIS_Y1)
+        bool runtime_enabled = global_settings.runtimedb || global_settings.y1_ipod_usb_mode;
+#else
+        bool runtime_enabled = global_settings.runtimedb;
+#endif
+        if (!selected_file.path || !runtime_enabled || !tagcache_is_usable())
             return ACTION_EXIT_MENUITEM;
     }
     return action;
@@ -692,6 +709,27 @@ static int ratingitem_callback(int action,
 MENUITEM_FUNCTION(rating_item, 0, ID2P(LANG_MENU_SET_RATING),
                   set_rating_inline,
                   ratingitem_callback, Icon_Questionmark);
+#ifdef INNIOASIS_Y1
+static int toggle_favorite_inline(void)
+{
+    struct mp3entry* id3 = audio_current_track();
+    bool runtime_enabled = global_settings.runtimedb || global_settings.y1_ipod_usb_mode;
+    if (id3 && id3->tagcache_idx && runtime_enabled)
+    {
+        id3->favorite = (id3->favorite > 0) ? 0 : 1;
+        tagcache_update_numeric(id3->tagcache_idx - 1, tag_favorite, id3->favorite);
+        if (y1_ipod_native_is_active())
+            y1_ipod_native_record_favorite(id3->path, id3->favorite != 0);
+        splash(HZ, id3->favorite ? "Added to Favorites" : "Removed from Favorites");
+    }
+    else
+        splash(HZ*2, ID2P(LANG_ID3_NO_INFO));
+    return 0;
+}
+MENUITEM_FUNCTION(favorite_item, 0, "Toggle Favorite",
+                  toggle_favorite_inline,
+                  ratingitem_callback, Icon_Bookmark);
+#endif
 #endif
 
 static char *wps_context_get_item_name(int selected_item, void * data,
@@ -1293,6 +1331,9 @@ MAKE_ONPLAYMENU( wps_onplay_menu, ID2P(LANG_ONPLAY_MENU_TITLE),
 #ifdef HAVE_TAGCACHE
            &wps_goto_db_artist_item, &wps_goto_db_album_item,
            &rating_item,
+#ifdef INNIOASIS_Y1
+           &favorite_item,
+#endif
 #endif
            &bookmark_menu,
            &view_cue_item,

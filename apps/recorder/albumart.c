@@ -29,6 +29,9 @@
 #include "pathfuncs.h"
 #include "settings.h"
 #include "wps.h"
+#if defined(INNIOASIS_Y1) && !defined(PLUGIN)
+#include "liby1.h"
+#endif
 
 /* Define LOGF_ENABLE to enable logf output in this file */
 /*#define LOGF_ENABLE*/
@@ -243,7 +246,16 @@ bool search_albumart_files(const struct mp3entry *id3, const char *size_string,
     }
 
     if (!found)
+    {
+#if defined(INNIOASIS_Y1) && !defined(PLUGIN)
+        if (y1_ipod_native_has_albumart(id3->path))
+        {
+            snprintf(buf, buflen, "ithmb://%s", id3->path);
+            return true;
+        }
+#endif
         return false;
+    }
 
     strmemccpy(buf, path, buflen);
     logf("Album art found: %s", path);

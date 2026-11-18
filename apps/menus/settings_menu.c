@@ -155,25 +155,41 @@ static int dirs_to_scan(void)
     return 0;
 }
 
-#ifdef HAVE_TC_RAMCACHE
-MENUITEM_SETTING(tagcache_ram, &global_settings.tagcache_ram, NULL);
+#ifdef INNIOASIS_Y1
+static int tagcache_ipod_hide_callback(int action,
+                                       const struct menu_item_ex *this_item,
+                                       struct gui_synclist *lists)
+{
+    (void)this_item;
+    (void)lists;
+    if (action == ACTION_REQUEST_MENUITEM && global_settings.y1_ipod_usb_mode)
+        return ACTION_EXIT_MENUITEM;
+    return action;
+}
+#define TC_IPOD_HIDE_CB tagcache_ipod_hide_callback
+#else
+#define TC_IPOD_HIDE_CB NULL
 #endif
-MENUITEM_SETTING(tagcache_autoupdate, &global_settings.tagcache_autoupdate, NULL);
+
+#ifdef HAVE_TC_RAMCACHE
+MENUITEM_SETTING(tagcache_ram, &global_settings.tagcache_ram, TC_IPOD_HIDE_CB);
+#endif
+MENUITEM_SETTING(tagcache_autoupdate, &global_settings.tagcache_autoupdate, TC_IPOD_HIDE_CB);
 MENUITEM_FUNCTION(tc_init, 0, ID2P(LANG_TAGCACHE_FORCE_UPDATE),
-                  (int(*)(void))tagcache_rebuild_with_splash, NULL, Icon_NOICON);
+                  (int(*)(void))tagcache_rebuild_with_splash, TC_IPOD_HIDE_CB, Icon_NOICON);
 MENUITEM_FUNCTION(tc_update, 0, ID2P(LANG_TAGCACHE_UPDATE),
                   (int(*)(void))tagcache_update_with_splash, NULL, Icon_NOICON);
-MENUITEM_SETTING(runtimedb, &global_settings.runtimedb, NULL);
+MENUITEM_SETTING(runtimedb, &global_settings.runtimedb, TC_IPOD_HIDE_CB);
 
 MENUITEM_FUNCTION(tc_export, 0, ID2P(LANG_TAGCACHE_EXPORT),
                   tagtree_export,
-                  NULL, Icon_NOICON);
+                  TC_IPOD_HIDE_CB, Icon_NOICON);
 
 MENUITEM_FUNCTION(tc_import, 0, ID2P(LANG_TAGCACHE_IMPORT),
                   tagtree_import,
-                  NULL, Icon_NOICON);
+                  TC_IPOD_HIDE_CB, Icon_NOICON);
 MENUITEM_FUNCTION(tc_paths, 0, ID2P(LANG_SELECT_DATABASE_DIRS),
-                  dirs_to_scan, NULL, Icon_NOICON);
+                  dirs_to_scan, TC_IPOD_HIDE_CB, Icon_NOICON);
 
 MAKE_MENU(tagcache_menu, ID2P(LANG_TAGCACHE), 0, Icon_NOICON,
 #ifdef HAVE_TC_RAMCACHE
@@ -476,24 +492,11 @@ static int y1_reboot_to_android_action(void)
 MENUITEM_FUNCTION(y1_reboot_to_android_item, 0, ID2P(LANG_REBOOT_TO_ANDROID),
                   y1_reboot_to_android_action, NULL, Icon_System_menu);
 
-static int y1_switch_to_rockwheel_action(void)
-{
-    int fd = open("/mnt/sdcard/.system/default_player", O_CREAT | O_WRONLY | O_TRUNC, 0666);
-    if (fd >= 0) {
-        write(fd, "rockwheel\n", 10);
-        close(fd);
-        sync();
-    }
-    splash(HZ, ID2P(LANG_SWITCH_TO_ROCKWHEEL));
-    sys_reboot();
-    return 0;
-}
-MENUITEM_FUNCTION(y1_switch_to_rockwheel_item, 0, ID2P(LANG_SWITCH_TO_ROCKWHEEL),
-                  y1_switch_to_rockwheel_action, NULL, Icon_System_menu);
 MENUITEM_SETTING(y1_bt_enable_item, &global_settings.bt_enabled, NULL);
 MENUITEM_SETTING(y1_bt_connected_device_full_volume_item, &global_settings.bt_connected_device_full_volume, NULL);
 MENUITEM_SETTING(y1_rich_album_view_item, &global_settings.y1_rich_album_view, NULL);
 MENUITEM_SETTING(y1_modern_scheme_item, &global_settings.y1_modern_scheme, NULL);
+MENUITEM_SETTING(y1_ipod_usb_mode_item, &global_settings.y1_ipod_usb_mode, NULL);
 
 static bool keyclick_custom_sound_show_item(char *name, int attr,
                                             struct tree_context *tc)
@@ -919,13 +922,13 @@ MAKE_MENU(nugget_device_menu, ID2P(LANG_DEVICE), 0, Icon_NOICON,
           &y1_cpu_mode_setting,
           &y1_cpu_cores_setting,
           &y1_screen_off_cpu_save_item,
+          &y1_ipod_usb_mode_item,
           &y1_logging_item,
           &nugget_headphone_menu);
 
 MAKE_MENU(nugget_menu, ID2P(LANG_NUGGET), 0, Icon_NOICON,
           &nugget_device_menu,
           &y1_bootloader_menu_item,
-          &y1_switch_to_rockwheel_item,
           &y1_reboot_to_android_item);
 
 static int y1_video_select_dir_func(void)
@@ -1016,6 +1019,9 @@ MAKE_MENU(usb_menu, ID2P(LANG_USB_MENU), 0, Icon_NOICON,
 #endif
 #ifdef HAVE_USB_MODE
             &usb_mode,
+#endif
+#if defined(INNIOASIS_Y1)
+            &y1_ipod_usb_mode_item,
 #endif
          );
 

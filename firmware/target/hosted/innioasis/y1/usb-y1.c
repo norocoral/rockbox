@@ -6,11 +6,12 @@
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
  *
- * Copyright (C) 2026 Rockbox Innioasis Y1 Port
+ * Copyright (C) 2026 Nugget Y1
  * USB management for minimal Linux on Innioasis Y1 (MT6572) via liby1
  ****************************************************************************/
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include "config.h"
@@ -21,6 +22,47 @@
 #include "liby1.h"
 
 static bool y1_charge_only = false;
+static volatile bool g_ipod_converting = false;
+static volatile bool g_tc_reload_needed = false;
+static bool g_attached_since_post_sync = false;
+static char g_convert_stage[96] = {0};
+static int g_convert_done = 0;
+static int g_convert_total = 0;
+
+static void y1_sync_progress_cb(const char *stage, int done, int total, void *user)
+{
+    (void)user;
+    if (stage)
+        snprintf(g_convert_stage, sizeof(g_convert_stage), "%s", stage);
+    else
+        g_convert_stage[0] = '\0';
+    g_convert_done = done;
+    g_convert_total = total;
+}
+
+bool y1_usb_is_converting(char *status_buf, size_t buf_sz)
+{
+    if (!g_ipod_converting)
+        return false;
+
+    if (status_buf && buf_sz > 0) {
+        if (g_convert_total > 0 && g_convert_stage[0])
+            snprintf(status_buf, buf_sz, "%s (%d/%d)",
+                     g_convert_stage, g_convert_done, g_convert_total);
+        else if (g_convert_stage[0])
+            snprintf(status_buf, buf_sz, "%s", g_convert_stage);
+        else
+            snprintf(status_buf, buf_sz, "Syncing iPod library...");
+    }
+    return true;
+}
+
+bool y1_usb_take_tc_reload_needed(void)
+{
+    bool needed = g_tc_reload_needed;
+    g_tc_reload_needed = false;
+    return needed;
+}
 
 static bool y1_is_serial_terminal_session(void)
 {
@@ -34,6 +76,37 @@ static bool y1_is_serial_terminal_session(void)
     return false;
 }
 
+static void attach_with_pre_sync(void)
+{
+    if (y1_is_serial_terminal_session())
+        return;
+
+    if (y1_usb_is_storage_attached())
+        return;
+
+    if (y1_usb_get_ipod_mode()) {
+        y1_ipod_ensure_device_files();
+        y1_ipod_native_invalidate();
+    }
+
+    if (y1_usb_attach_mass_storage())
+        g_attached_since_post_sync = true;
+}
+
+static void run_post_disconnect_once(void)
+{
+    if (!g_attached_since_post_sync)
+        return;
+    g_attached_since_post_sync = false;
+
+    if (!y1_usb_get_ipod_mode())
+        return;
+
+    y1_ipod_ensure_device_files();
+    y1_ipod_native_invalidate();
+    g_tc_reload_needed = true;
+}
+
 bool y1_is_charge_only_mode(void)
 {
     return y1_charge_only || y1_is_serial_terminal_session();
@@ -41,16 +114,16 @@ bool y1_is_charge_only_mode(void)
 
 void y1_usb_attach_storage(void)
 {
-    if (y1_is_serial_terminal_session())
-        return;
-    y1_usb_attach_mass_storage();
+    attach_with_pre_sync();
 }
 
 void y1_usb_eject_to_charge_only(void)
 {
     y1_charge_only = true;
-    if (!y1_is_serial_terminal_session())
+    if (!y1_is_serial_terminal_session()) {
         y1_usb_detach_mass_storage();
+        run_post_disconnect_once();
+    }
     sync();
     usb_release_exclusive_storage();
 }
@@ -91,9 +164,9 @@ void usb_enable(bool on)
     if (y1_is_serial_terminal_session())
         return;
 
-    if (on)
-        y1_usb_attach_mass_storage();
-    else
+    /* Attaching storage is deferred until disk_unmount_all() so Rockbox
+       threads (including tagcache) flush and pause before PC mounts LUN0. */
+    if (!on)
         y1_usb_detach_mass_storage();
 }
 
@@ -103,7 +176,7 @@ void usb_init_device(void)
         return;
 
     if (usb_detect() == USB_INSERTED)
-        y1_usb_attach_mass_storage();
+        attach_with_pre_sync();
     else
         usb_enable(false);
 }
@@ -111,12 +184,13 @@ void usb_init_device(void)
 int disk_mount_all(void)
 {
     sync();
+    if (!y1_is_serial_terminal_session())
+        run_post_disconnect_once();
     return 1;
 }
 
 int disk_unmount_all(void)
 {
-    if (!y1_is_serial_terminal_session())
-        y1_usb_attach_mass_storage();
+    attach_with_pre_sync();
     return 1;
 }

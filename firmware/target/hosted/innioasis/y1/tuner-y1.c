@@ -6,7 +6,7 @@
  *   Firmware   |____|_  /\____/ \___  >__|_ \|___  /\____/__/\_ \
  *                     \/            \/     \/    \/            \/
  *
- * Copyright (C) 2026 Rockbox Innioasis Y1 Port
+ * Copyright (C) 2026 Nugget Y1
  * MediaTek MT6572 / MT6627 FM Radio Tuner Driver via liby1
  ****************************************************************************/
 
@@ -46,7 +46,7 @@ int y1_tuner_set(int setting, int value)
 
         case RADIO_FORCE_MONO:
             force_mono = (value != 0);
-            return 0;
+            return y1_fm_set_mono(force_mono);
 
         default:
             return -1;
@@ -64,7 +64,7 @@ int y1_tuner_get(int setting)
             return y1_fm_is_tuned() ? 1 : 0;
 
         case RADIO_STEREO:
-            return force_mono ? 0 : 1;
+            return (!force_mono && y1_fm_is_stereo()) ? 1 : 0;
 
         case RADIO_RSSI:
             return y1_fm_get_rssi();

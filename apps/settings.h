@@ -980,6 +980,7 @@ struct user_settings
     int  y1_video_1080p_mode;
     bool y1_video_autoplay_next;
     bool y1_video_show_thumbs;
+    bool y1_ipod_usb_mode;
 #endif
 #if !defined(SIMULATOR) && !defined(USB_NONE) && (defined(HAVE_USB_ADB) || defined(HAVE_USB_POWER))
     int usb_mode;

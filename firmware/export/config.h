@@ -1004,6 +1004,11 @@ Lyre prototype 1 */
 #endif
 #endif
 
+#if defined(INNIOASIS_Y1) && !defined(BOOTLOADER) && (defined(CHECKWPS) || !defined(__PCTOOL__)) \
+    && defined(HAVE_TAGCACHE) && !defined(HAVE_TC_RAMCACHE)
+#define HAVE_TC_RAMCACHE
+#endif
+
 #if defined(HAVE_TAGCACHE)
 #define HAVE_PICTUREFLOW_INTEGRATION
 #endif

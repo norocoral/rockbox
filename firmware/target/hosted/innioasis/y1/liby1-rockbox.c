@@ -18,6 +18,7 @@
 #include "../../../../../vendor/liby1/src/y1_audio.c"
 #include "../../../../../vendor/liby1/src/y1_tuner.c"
 #include "../../../../../vendor/liby1/src/y1_usb.c"
+#include "../../../../../vendor/liby1/src/y1_ipod_sync.c"
 #elif defined(__has_include) && __has_include("../../../../../../!nugget/main/liby1/src/y1_core.c")
 #include "../../../../../../!nugget/main/liby1/src/y1_core.c"
 #include "../../../../../../!nugget/main/liby1/src/y1_display.c"
@@ -26,6 +27,7 @@
 #include "../../../../../../!nugget/main/liby1/src/y1_audio.c"
 #include "../../../../../../!nugget/main/liby1/src/y1_tuner.c"
 #include "../../../../../../!nugget/main/liby1/src/y1_usb.c"
+#include "../../../../../../!nugget/main/liby1/src/y1_ipod_sync.c"
 #elif defined(__has_include) && __has_include("../../../../../!nugget/main/liby1/src/y1_core.c")
 #include "../../../../../!nugget/main/liby1/src/y1_core.c"
 #include "../../../../../!nugget/main/liby1/src/y1_display.c"
@@ -34,6 +36,7 @@
 #include "../../../../../!nugget/main/liby1/src/y1_audio.c"
 #include "../../../../../!nugget/main/liby1/src/y1_tuner.c"
 #include "../../../../../!nugget/main/liby1/src/y1_usb.c"
+#include "../../../../../!nugget/main/liby1/src/y1_ipod_sync.c"
 #else
 #include "../../../../../hosted_linux_port/liby1/src/y1_core.c"
 #include "../../../../../hosted_linux_port/liby1/src/y1_display.c"
@@ -42,5 +45,6 @@
 #include "../../../../../hosted_linux_port/liby1/src/y1_audio.c"
 #include "../../../../../hosted_linux_port/liby1/src/y1_tuner.c"
 #include "../../../../../hosted_linux_port/liby1/src/y1_usb.c"
+#include "../../../../../hosted_linux_port/liby1/src/y1_ipod_sync.c"
 #endif
 

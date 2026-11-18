@@ -27,6 +27,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef INNIOASIS_Y1
+#include <time.h>
+#include "liby1.h"
+#endif
 #include "string-extra.h"
 #include "config.h"
 #include "system.h"
@@ -939,7 +943,11 @@ static void tagtree_buffer_event(unsigned short id, void *ev_data)
     struct tagcache_search tcs;
     struct mp3entry *id3 = ((struct track_event *)ev_data)->id3;
 
+#if defined(INNIOASIS_Y1)
+    bool runtimedb = global_settings.runtimedb || global_settings.y1_ipod_usb_mode;
+#else
     bool runtimedb = global_settings.runtimedb;
+#endif
     bool autoresume = global_settings.autoresume_enable;
 
     /* Do not gather data unless proper setting has been enabled. */
@@ -1011,7 +1019,11 @@ static void tagtree_track_finish_event(unsigned short id, void *ev_data)
     tagcache_idx--;
 
     bool auto_skip = te->flags & TEF_AUTO_SKIP;
+#if defined(INNIOASIS_Y1)
+    bool runtimedb = global_settings.runtimedb || global_settings.y1_ipod_usb_mode;
+#else
     bool runtimedb = global_settings.runtimedb;
+#endif
     bool autoresume = global_settings.autoresume_enable;
 
     /* Don't process unplayed tracks, or tracks interrupted within the
@@ -1079,6 +1091,15 @@ static void tagtree_track_finish_event(unsigned short id, void *ev_data)
         logf("tagtree_track_finish_event: Save resume for %s: %lX %lX",
              str_or_empty(id3->title), elapsed, offset);
     }
+
+#ifdef INNIOASIS_Y1
+    if (y1_ipod_native_is_active() && (runtimedb || autoresume))
+    {
+        uint32_t bm_ms = (autoresume && !auto_skip) ? (uint32_t)id3->elapsed : 0;
+        y1_ipod_native_record_play(id3->path, runtimedb ? 1U : 0U,
+                                   (uint32_t)time(NULL), bm_ms);
+    }
+#endif
 }
 
 int tagtree_export(void)

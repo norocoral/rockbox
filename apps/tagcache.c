@@ -73,6 +73,9 @@
 #include "system.h"
 #include "logf.h"
 #include "string-extra.h"
+#ifdef INNIOASIS_Y1
+#include "liby1.h"
+#endif
 #include "usb.h"
 #include "metadata.h"
 #include "tagcache.h"
@@ -268,6 +271,7 @@ enum tagcache_queue {
     Q_IMPORT_CHANGELOG,
     Q_UPDATE,
     Q_REBUILD,
+    Q_RELOAD_AFTER_USB,
 
     /* Internal tagcache command queue. */
     CMD_UPDATE_MASTER_HEADER,
@@ -3645,8 +3649,43 @@ static void command_queue_sync_callback(void)
 
     mutex_lock(&command_queue_mutex);
 
-    if ( (masterfd = open_master_fd(&myhdr, true)) < 0)
+#ifdef INNIOASIS_Y1
+    if (y1_ipod_native_is_active())
+    {
+#ifdef HAVE_TC_RAMCACHE
+        if (tc_stat.ramcache && tcramcache.hdr)
+        {
+            tcrc_buffer_lock();
+            while (command_queue_ridx != command_queue_widx)
+            {
+                struct tagcache_command_entry *ce = &command_queue[command_queue_ridx];
+                if (ce->command == CMD_UPDATE_NUMERIC &&
+                    ce->idx_id >= 0 && ce->idx_id < current_tcmh.tch.entry_count &&
+                    TAGCACHE_IS_NUMERIC(ce->tag))
+                {
+                    tcramcache.hdr->indices[ce->idx_id].tag_seek[ce->tag] = ce->data;
+                }
+                if (++command_queue_ridx >= TAGCACHE_COMMAND_QUEUE_LENGTH)
+                    command_queue_ridx = 0;
+            }
+            tcrc_buffer_unlock();
+        }
+        else
+#endif
+        {
+            command_queue_ridx = command_queue_widx;
+        }
+        tc_stat.queue_length = 0;
+        mutex_unlock(&command_queue_mutex);
         return;
+    }
+#endif
+
+    if ( (masterfd = open_master_fd(&myhdr, true)) < 0)
+    {
+        mutex_unlock(&command_queue_mutex);
+        return;
+    }
 
     while (command_queue_ridx != command_queue_widx)
     {
@@ -5185,6 +5224,10 @@ commit:
 #ifndef __PCTOOL__
 void tagcache_build(void)
 {
+#ifdef INNIOASIS_Y1
+    if (y1_usb_get_ipod_mode())
+        return;
+#endif
     char *vect[MAX_STATIC_ROOTS + 1]; /* +1 to ensure NULL sentinel */
     char str[sizeof(global_settings.tagcache_scan_paths)];
     strmemccpy(str, global_settings.tagcache_scan_paths, sizeof(str));
@@ -5227,6 +5270,72 @@ void tagcache_unload_ramcache(void)
     /* Just to make sure there is no statefile present. */
     // remove_db_file(TAGCACHE_STATEFILE);
 }
+
+#ifdef INNIOASIS_Y1
+static bool load_native_ipod_ramcache(void)
+{
+    struct y1_ipod_ramcache_data rcdata;
+    if (!y1_ipod_native_load_ramcache(&rcdata))
+        return false;
+
+    if (tcramcache.handle > 0)
+    {
+        int old_h = tcramcache.handle;
+        tcramcache.handle = 0;
+        tcramcache.hdr = NULL;
+        core_free(old_h);
+    }
+
+    size_t alloc_size = sizeof(struct ramcache_header) + rcdata.indices_size + 256;
+    for (int i = 0; i < rcdata.num_tags; i++)
+        alloc_size += rcdata.tags[i].size + 16;
+
+    int handle = core_alloc_ex(alloc_size, &ops);
+    if (handle <= 0)
+    {
+        y1_ipod_native_free_ramcache(&rcdata);
+        return false;
+    }
+
+    tcramcache.handle = handle;
+    tcramcache.hdr = core_get_data(handle);
+    tc_stat.ramcache_allocated = alloc_size;
+
+    tcrc_buffer_lock();
+    memset(tcramcache.hdr, 0, sizeof(struct ramcache_header));
+    if (rcdata.indices_size > 0 && rcdata.indices)
+        memcpy(tcramcache.hdr->indices, rcdata.indices, rcdata.indices_size);
+
+    char *p = (char *)&tcramcache.hdr->indices[rcdata.entry_count];
+    for (int i = 0; i < rcdata.num_tags; i++)
+    {
+        int tag = rcdata.tags[i].tag;
+        ssize_t gap = 0;
+        p = TC_ALIGN_PTR(p, struct tagcache_header, &gap);
+        tcramcache.hdr->tags[tag] = p;
+        tcramcache.hdr->entry_count[tag] = rcdata.tags[i].entry_count;
+        memcpy(p, rcdata.tags[i].data, rcdata.tags[i].size);
+        p += rcdata.tags[i].size;
+    }
+
+    current_tcmh.tch.magic = TAGCACHE_MAGIC;
+    current_tcmh.tch.datasize = (int32_t)rcdata.total_datasize;
+    current_tcmh.tch.entry_count = rcdata.entry_count;
+    current_tcmh.serial = 1;
+    current_tcmh.commitid = 1;
+    current_tcmh.dirty = 0;
+
+    tc_stat.ramcache_used = (size_t)(p - (char *)tcramcache.hdr);
+    tcrc_buffer_unlock();
+
+    y1_ipod_native_free_ramcache(&rcdata);
+
+    tc_stat.ready = true;
+    tc_stat.readyvalid = true;
+    tc_stat.ramcache = true;
+    return true;
+}
+#endif
 #endif /* HAVE_TC_RAMCACHE */
 
 #ifndef __PCTOOL__
@@ -5268,19 +5377,29 @@ static void tagcache_thread(void)
     }
 
 #ifdef HAVE_TC_RAMCACHE
-#ifdef HAVE_EEPROM_SETTINGS
-    if (firmware_settings.initialized && firmware_settings.disk_clean
-        && global_settings.tagcache_ram)
+#ifdef INNIOASIS_Y1
+    if (y1_usb_get_ipod_mode())
     {
-        check_done = tagcache_dumpload();
+        load_native_ipod_ramcache();
+        check_done = true;
     }
+    else
+#endif
+    {
+#ifdef HAVE_EEPROM_SETTINGS
+        if (firmware_settings.initialized && firmware_settings.disk_clean
+            && global_settings.tagcache_ram)
+        {
+            check_done = tagcache_dumpload();
+        }
 
-    remove_db_file(TAGCACHE_STATEFILE);
+        remove_db_file(TAGCACHE_STATEFILE);
 #endif /* HAVE_EEPROM_SETTINGS */
 
-    /* Allocate space for the tagcache if found on disk. */
-    if (global_settings.tagcache_ram && !tc_stat.ramcache)
-        allocate_tagcache();
+        /* Allocate space for the tagcache if found on disk. */
+        if (global_settings.tagcache_ram && !tc_stat.ramcache)
+            allocate_tagcache();
+    }
 #endif /* HAVE_TC_RAMCACHE */
 
     cpu_boost(false);
@@ -5306,12 +5425,28 @@ static void tagcache_thread(void)
                 break;
 
             case Q_REBUILD:
+#ifdef INNIOASIS_Y1
+                if (y1_usb_get_ipod_mode())
+                {
+                    y1_ipod_native_invalidate();
+                    load_native_ipod_ramcache();
+                    break;
+                }
+#endif
                 remove_files();
                 remove_db_file(TAGCACHE_FILE_TEMP);
                 tagcache_build();
                 break;
 
             case Q_UPDATE:
+#ifdef INNIOASIS_Y1
+                if (y1_usb_get_ipod_mode())
+                {
+                    y1_ipod_native_invalidate();
+                    load_native_ipod_ramcache();
+                    break;
+                }
+#endif
                 tagcache_build();
 #ifdef HAVE_TC_RAMCACHE
                 load_ramcache();
@@ -5323,6 +5458,13 @@ static void tagcache_thread(void)
                 check_done = false;
                 /* fallthrough */
             case SYS_TIMEOUT:
+#ifdef INNIOASIS_Y1
+                if (y1_usb_get_ipod_mode())
+                {
+                    check_done = true;
+                    break;
+                }
+#endif
                 if (check_done || !tc_stat.ready)
                     break ;
 
@@ -5361,8 +5503,44 @@ static void tagcache_thread(void)
 
             case SYS_USB_CONNECTED:
                 logf("USB: TagCache");
+                run_command_queue(true);
+                if (filenametag_fd >= 0) {
+                    close(filenametag_fd);
+                    filenametag_fd = -1;
+                }
                 usb_acknowledge(SYS_USB_CONNECTED_ACK, ev.data);
                 usb_wait_for_disconnect(&tagcache_queue);
+                break ;
+
+            case Q_RELOAD_AFTER_USB:
+                if (filenametag_fd >= 0) {
+                    close(filenametag_fd);
+                    filenametag_fd = -1;
+                }
+                write_lock = read_lock = 0;
+#ifdef INNIOASIS_Y1
+                if (y1_usb_get_ipod_mode())
+                {
+                    y1_ipod_native_invalidate();
+                    tagcache_unload_ramcache();
+                    if (!load_native_ipod_ramcache())
+                    {
+                        tc_stat.ready = false;
+                        tc_stat.readyvalid = true;
+                    }
+                    break;
+                }
+#endif
+                remove_db_file(TAGCACHE_FILE_TEMP);
+#ifdef HAVE_TC_RAMCACHE
+                tagcache_unload_ramcache();
+#endif
+                tc_stat.ready = check_all_headers();
+                tc_stat.readyvalid = true;
+#ifdef HAVE_TC_RAMCACHE
+                if (tc_stat.ready)
+                    load_ramcache();
+#endif
                 break ;
         }
     }
@@ -5459,6 +5637,11 @@ bool tagcache_rebuild(void)
 void tagcache_stop_scan(void)
 {
     queue_post(&tagcache_queue, Q_STOP_SCAN, 0);
+}
+
+void tagcache_reload_after_usb(void)
+{
+    queue_post(&tagcache_queue, Q_RELOAD_AFTER_USB, 0);
 }
 
 #endif /* !__PCTOOL__ */

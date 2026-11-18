@@ -44,6 +44,7 @@
 #if defined(INNIOASIS_Y1)
 #include "usb-y1.h"
 #include "splash.h"
+#include "tagcache.h"
 #endif
 
 #include "bitmaps/usblogo.h"
@@ -79,6 +80,27 @@ static void draw_usb_keypad_mode(struct viewport *title)
 }
 #endif /* USB_ENABLE_HID */
 
+#if defined(INNIOASIS_Y1)
+static void usb_draw_converting_status(const char *msg)
+{
+    struct screen *screen = &screens[SCREEN_MAIN];
+    struct viewport vp;
+    viewport_set_defaults(&vp, SCREEN_MAIN);
+    vp.font = FONT_SYSFIXED;
+    vp.flags |= VP_FLAG_ALIGN_CENTER;
+    int fh = font_get(FONT_SYSFIXED)->height;
+    int bottom = vp.y + vp.height;
+    vp.y = bottom - fh - 6;
+    if (vp.y < 0) vp.y = 0;
+    vp.height = fh + 4;
+    struct viewport *last = screen->set_viewport(&vp);
+    screen->clear_viewport();
+    screen->puts(0, 0, msg);
+    screen->update_viewport();
+    screen->set_viewport(last);
+}
+#endif
+
 static void handle_usb_events(struct viewport *title)
 {
 #if (CONFIG_STORAGE & STORAGE_MMC) && !defined(SIMULATOR)
@@ -87,6 +109,8 @@ static void handle_usb_events(struct viewport *title)
     int button;
 #if defined(INNIOASIS_Y1)
     long center_press_start = 0;
+    char conv_status[96] = {0};
+    bool was_converting = false;
 #endif
 
     /* Don't return until we get SYS_USB_DISCONNECTED */
@@ -115,9 +139,21 @@ static void handle_usb_events(struct viewport *title)
             reset_runtime();
 
 #if defined(INNIOASIS_Y1)
+        if (y1_usb_is_converting(conv_status, sizeof(conv_status)))
+        {
+            usb_draw_converting_status(conv_status);
+            was_converting = true;
+        }
+        else if (was_converting)
+        {
+            was_converting = false;
+            usb_draw_converting_status("");
+        }
+
         if (y1_usb_check_host_ejected())
         {
-            /* Host PC safely ejected media: transition immediately to charge-only mode */
+            /* Host PC safely ejected media: convert iPod DB and transition to charge-only */
+            usb_draw_converting_status("Updating iPod library...");
             y1_usb_eject_to_charge_only();
             return;
         }
@@ -131,6 +167,7 @@ static void handle_usb_events(struct viewport *title)
             else if (TIME_AFTER(current_tick, center_press_start + HZ))
             {
                 /* Center button held for 1 second on USB screen: eject and charge only */
+                usb_draw_converting_status("Updating iPod library...");
                 y1_usb_eject_to_charge_only();
                 return;
             }
@@ -346,6 +383,10 @@ void gui_usb_screen_run(bool early_usb, intptr_t seqnum)
     if (y1_is_charge_only_mode())
     {
         splash(HZ, ID2P(LANG_USB_MODE_CHARGE));
+    }
+    if (y1_usb_take_tc_reload_needed())
+    {
+        tagcache_reload_after_usb();
     }
 #endif
 
