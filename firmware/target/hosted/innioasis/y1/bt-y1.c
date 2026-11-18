@@ -170,6 +170,16 @@ static bool avdtp_med_remote_conf_done = false;
 static bool avdtp_initiator = false;
 static bool avdtp_discover_sent = false;
 static bool avdtp_opening_media = false;
+static bool avdtp_sig_conn_requested = false;
+static uint32_t acl_connect_ms = 0;
+static uint32_t avdtp_sig_ready_ms = 0;
+
+static uint32_t bt_monotonic_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
 static volatile bool in_sniff_mode = false;
 #define Y1_BT_MIC_RING_FRAMES 4096
 static int16_t bt_mic_pcm_ring[Y1_BT_MIC_RING_FRAMES * 2];
@@ -466,6 +476,9 @@ static void reset_bt_session(void)
     avdtp_initiator = false;
     avdtp_discover_sent = false;
     avdtp_opening_media = false;
+    avdtp_sig_conn_requested = false;
+    acl_connect_ms = 0;
+    avdtp_sig_ready_ms = 0;
     remote_seid = 1;
     memset(remote_sink_seids, 0, sizeof(remote_sink_seids));
     remote_sink_count = 0;
@@ -883,6 +896,7 @@ static void handle_avdtp_sig_pdu(const uint8_t *pdu, uint16_t len)
                 break;
             }
             case AVDTP_SET_CONFIGURATION: {
+                avdtp_discover_sent = true;
                 /* Parse negotiated SBC configuration if present */
                 for (int i = 4; i + 7 < len; i++) {
                     if (pdu[i] == 0x07 && pdu[i + 1] == 0x06 && pdu[i + 2] == 0x00 && pdu[i + 3] == 0x00) {
@@ -1064,6 +1078,7 @@ static void handle_avdtp_sig_pdu(const uint8_t *pdu, uint16_t len)
                 break;
             }
             case AVDTP_SET_CONFIGURATION: {
+                avdtp_discover_sent = true;
                 uint8_t open_param[1] = { (uint8_t)(remote_seid << 2) };
                 avdtp_send_cmd(AVDTP_OPEN, open_param, 1);
                 break;
@@ -1896,6 +1911,8 @@ static void check_avdtp_channels_ready(void)
         if (avdtp_initiator) {
             avdtp_discover_sent = true;
             avdtp_send_cmd(AVDTP_DISCOVER, NULL, 0);
+        } else if (avdtp_sig_ready_ms == 0) {
+            avdtp_sig_ready_ms = bt_monotonic_ms();
         }
     }
     if (avdtp_med_local_conf_done && avdtp_med_remote_conf_done && !a2dp_streaming) {
@@ -2310,6 +2327,7 @@ static void handle_hci_event(const uint8_t *pkt, size_t len)
                     reset_bt_session();
                     avdtp_initiator = initiated;
                     acl_handle = handle & 0x0FFF;
+                    acl_connect_ms = bt_monotonic_ms();
                     sbc_is_xq = false;
                     memcpy(active_bdaddr, bd, 6);
 
@@ -2679,6 +2697,24 @@ static void ensure_mt6572_wmt_ready(void)
     }
 }
 
+void y1_bt_ensure_wmt_ready(void)
+{
+    ensure_mt6572_wmt_ready();
+    mkdir("/etc", 0755);
+    mkdir("/etc/firmware", 0755);
+    unlink("/etc/firmware/mt6627");
+    (void)!symlink("/.system/bt/mt6627", "/etc/firmware/mt6627");
+    unlink("/etc/fmr");
+    (void)!symlink("/.system/bt/fmr", "/etc/fmr");
+    unlink("/system/etc/fmr");
+    (void)!symlink("/.system/bt/fmr", "/system/etc/fmr");
+    mknod("/dev/fm", S_IFCHR | 0666, makedev(193, 0));
+    if (load_bt_kernel_module("/.system/bt/mtk_fm_drv.ko", "") == 0 ||
+        load_bt_kernel_module("/mnt/sdcard/.system/bt/mtk_fm_drv.ko", "") == 0) {
+        bt_log("Loaded MT6572 FM driver (mtk_fm_drv.ko).\n");
+    }
+}
+
 static bool mt6572_bt_hw_open_and_init(void)
 {
     reset_bt_session();
@@ -3008,6 +3044,28 @@ static void *bt_worker_thread(void *arg)
             if (!receiver_play_status_request_pending &&
                 now_ms - last_receiver_play_status_query_ms >= 250)
                 request_receiver_play_status();
+        }
+
+        /* If an incoming connection on first boot did not start A2DP signaling
+         * on its own, proactively open AVDTP / send AVDTP_DISCOVER so codec
+         * negotiation and audio streaming start reliably. */
+        if (acl_handle != 0xFFFF && !bt_receiver_mode && !a2dp_streaming &&
+            !req_connect && !req_scan && !resolving_names) {
+            uint32_t now_ms = bt_monotonic_ms();
+            if (cid_avdtp_sig_remote == 0 && !avdtp_sig_conn_requested &&
+                acl_connect_ms != 0 && now_ms - acl_connect_ms >= 600) {
+                avdtp_sig_conn_requested = true;
+                avdtp_initiator = true;
+                l2cap_send_conn_req(PSM_AVDTP, CID_AVDTP_SIG_LOCAL);
+                bt_log("A2DP signaling idle after ACL connect; opening AVDTP\n");
+            } else if (avdtp_sig_local_conf_done && avdtp_sig_remote_conf_done &&
+                       !avdtp_discover_sent && avdtp_sig_ready_ms != 0 &&
+                       now_ms - avdtp_sig_ready_ms >= 400) {
+                avdtp_discover_sent = true;
+                avdtp_initiator = true;
+                avdtp_send_cmd(AVDTP_DISCOVER, NULL, 0);
+                bt_log("A2DP signaling ready; sending AVDTP_DISCOVER\n");
+            }
         }
 
         /* Do not throttle receiver links or active media streams: incoming

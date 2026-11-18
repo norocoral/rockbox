@@ -17,6 +17,7 @@
 #include "tuner.h"
 #include "fmradio.h"
 #include "tuner-y1.h"
+#include "bt-y1.h"
 #include "y1-log.h"
 #include "liby1.h"
 
@@ -32,6 +33,8 @@ int y1_tuner_set(int setting, int value)
     switch (setting)
     {
         case RADIO_SLEEP:
+            if (value == 0)
+                y1_bt_ensure_wmt_ready();
             return y1_fm_power(value == 0);
 
         case RADIO_FREQUENCY:

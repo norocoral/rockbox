@@ -18752,3 +18752,240 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_Y1_IPOD_USB_MODE
+  desc: in Settings -> Nugget / USB
+  user: core
+  <source>
+    *: "iPod USB Mode (iTunes Sync)"
+  </source>
+  <dest>
+    *: "iPod USB 모드 (iTunes 동기화)"
+  </dest>
+  <voice>
+    *: "iPod USB 모드"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_POWER_OFF
+  desc: in Main/System menu
+  user: core
+  <source>
+    *: "Power Off"
+  </source>
+  <dest>
+    *: "전원 끄기"
+  </dest>
+  <voice>
+    *: "전원 끄기"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_REBOOT
+  desc: in Main/System menu
+  user: core
+  <source>
+    *: "Reboot"
+  </source>
+  <dest>
+    *: "재부팅"
+  </dest>
+  <voice>
+    *: "재부팅"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_TOGGLE_FAVORITE
+  desc: in WPS context menu
+  user: core
+  <source>
+    *: "Toggle Favorite"
+  </source>
+  <dest>
+    *: "즐겨찾기 전환"
+  </dest>
+  <voice>
+    *: "즐겨찾기 전환"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_ADDED_FAVORITES
+  desc: splash when adding favorite
+  user: core
+  <source>
+    *: "Added to Favorites"
+  </source>
+  <dest>
+    *: "즐겨찾기에 추가됨"
+  </dest>
+  <voice>
+    *: "즐겨찾기에 추가됨"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_REMOVED_FAVORITES
+  desc: splash when removing favorite
+  user: core
+  <source>
+    *: "Removed from Favorites"
+  </source>
+  <dest>
+    *: "즐겨찾기에서 제거됨"
+  </dest>
+  <voice>
+    *: "즐겨찾기에서 제거됨"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_SYNC_ITUNES_DB
+  desc: splash when opening empty iTunes database
+  user: core
+  <source>
+    *: "Sync with iTunes to load database"
+  </source>
+  <dest>
+    *: "데이터베이스를 불러오려면 iTunes와 동기화하세요"
+  </dest>
+  <voice>
+    *: "데이터베이스를 불러오려면 iTunes와 동기화하세요"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_DYNAMIC
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Dynamic (Ondemand)"
+  </source>
+  <dest>
+    *: "동적 (Ondemand)"
+  </dest>
+  <voice>
+    *: "동적"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_POWERSAVE
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Power Saver (598MHz Underclock)"
+  </source>
+  <dest>
+    *: "절전 (598MHz 언더클럭)"
+  </dest>
+  <voice>
+    *: "절전"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_BALANCED
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Balanced (1.0GHz)"
+  </source>
+  <dest>
+    *: "균형 (1.0GHz)"
+  </dest>
+  <voice>
+    *: "균형"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_PERF
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Performance (1.2GHz)"
+  </source>
+  <dest>
+    *: "성능 (1.2GHz)"
+  </dest>
+  <voice>
+    *: "성능"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_TURBO
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Turbo Overclock (1.3GHz)"
+  </source>
+  <dest>
+    *: "터보 오버클럭 (1.3GHz)"
+  </dest>
+  <voice>
+    *: "터보 오버클럭"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_DUAL
+  desc: in CPU core settings
+  user: core
+  <source>
+    *: "Dual-Core (Normal)"
+  </source>
+  <dest>
+    *: "듀얼 코어 (일반)"
+  </dest>
+  <voice>
+    *: "듀얼 코어"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_SINGLE
+  desc: in CPU core settings
+  user: core
+  <source>
+    *: "Single-Core (Disable Core 1)"
+  </source>
+  <dest>
+    *: "싱글 코어 (코어 1 비활성화)"
+  </dest>
+  <voice>
+    *: "싱글 코어"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIDEO_FIT
+  desc: in video aspect ratio settings
+  user: core
+  <source>
+    *: "Fit (Letterbox)"
+  </source>
+  <dest>
+    *: "화면 맞춤 (레터박스)"
+  </dest>
+  <voice>
+    *: "화면 맞춤"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIDEO_FILL
+  desc: in video aspect ratio settings
+  user: core
+  <source>
+    *: "Fill (Crop)"
+  </source>
+  <dest>
+    *: "화면 채움 (자르기)"
+  </dest>
+  <voice>
+    *: "화면 채움"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIDEO_STRETCH
+  desc: in video aspect ratio settings
+  user: core
+  <source>
+    *: "Stretch"
+  </source>
+  <dest>
+    *: "늘리기"
+  </dest>
+  <voice>
+    *: "늘리기"
+  </voice>
+</phrase>

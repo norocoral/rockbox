@@ -30,7 +30,9 @@ struct regs
 
 #if (CONFIG_PLATFORM & PLATFORM_HOSTED)
   #include <errno.h>
-#if defined(DX50) || defined (DX90)
+#if defined(INNIOASIS_Y1)
+  #define DEFAULT_STACK_SIZE 0x8000 /* 32 KB: glibc + liby1 stack headroom */
+#elif defined(DX50) || defined (DX90)
   #define DEFAULT_STACK_SIZE 0x2000 /* Bytes */
 #else
   #define DEFAULT_STACK_SIZE 0x1000 /* Bytes */

@@ -18821,3 +18821,227 @@
     *: "iPod USB Mode"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_POWER_OFF
+  desc: in Main/System menu
+  user: core
+  <source>
+    *: "Power Off"
+  </source>
+  <dest>
+    *: "Power Off"
+  </dest>
+  <voice>
+    *: "Power Off"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_REBOOT
+  desc: in Main/System menu
+  user: core
+  <source>
+    *: "Reboot"
+  </source>
+  <dest>
+    *: "Reboot"
+  </dest>
+  <voice>
+    *: "Reboot"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_TOGGLE_FAVORITE
+  desc: in WPS context menu
+  user: core
+  <source>
+    *: "Toggle Favorite"
+  </source>
+  <dest>
+    *: "Toggle Favorite"
+  </dest>
+  <voice>
+    *: "Toggle Favorite"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_ADDED_FAVORITES
+  desc: splash when adding favorite
+  user: core
+  <source>
+    *: "Added to Favorites"
+  </source>
+  <dest>
+    *: "Added to Favorites"
+  </dest>
+  <voice>
+    *: "Added to Favorites"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_REMOVED_FAVORITES
+  desc: splash when removing favorite
+  user: core
+  <source>
+    *: "Removed from Favorites"
+  </source>
+  <dest>
+    *: "Removed from Favorites"
+  </dest>
+  <voice>
+    *: "Removed from Favorites"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_SYNC_ITUNES_DB
+  desc: splash when opening empty iTunes database
+  user: core
+  <source>
+    *: "Sync with iTunes to load database"
+  </source>
+  <dest>
+    *: "Sync with iTunes to load database"
+  </dest>
+  <voice>
+    *: "Sync with iTunes to load database"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_DYNAMIC
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Dynamic (Ondemand)"
+  </source>
+  <dest>
+    *: "Dynamic (Ondemand)"
+  </dest>
+  <voice>
+    *: "Dynamic"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_POWERSAVE
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Power Saver (598MHz Underclock)"
+  </source>
+  <dest>
+    *: "Power Saver (598MHz Underclock)"
+  </dest>
+  <voice>
+    *: "Power Saver"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_BALANCED
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Balanced (1.0GHz)"
+  </source>
+  <dest>
+    *: "Balanced (1.0GHz)"
+  </dest>
+  <voice>
+    *: "Balanced"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_PERF
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Performance (1.2GHz)"
+  </source>
+  <dest>
+    *: "Performance (1.2GHz)"
+  </dest>
+  <voice>
+    *: "Performance"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_TURBO
+  desc: in CPU mode settings
+  user: core
+  <source>
+    *: "Turbo Overclock (1.3GHz)"
+  </source>
+  <dest>
+    *: "Turbo Overclock (1.3GHz)"
+  </dest>
+  <voice>
+    *: "Turbo Overclock"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_DUAL
+  desc: in CPU core settings
+  user: core
+  <source>
+    *: "Dual-Core (Normal)"
+  </source>
+  <dest>
+    *: "Dual-Core (Normal)"
+  </dest>
+  <voice>
+    *: "Dual-Core"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CPU_SINGLE
+  desc: in CPU core settings
+  user: core
+  <source>
+    *: "Single-Core (Disable Core 1)"
+  </source>
+  <dest>
+    *: "Single-Core (Disable Core 1)"
+  </dest>
+  <voice>
+    *: "Single-Core"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIDEO_FIT
+  desc: in video aspect ratio settings
+  user: core
+  <source>
+    *: "Fit (Letterbox)"
+  </source>
+  <dest>
+    *: "Fit (Letterbox)"
+  </dest>
+  <voice>
+    *: "Fit"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIDEO_FILL
+  desc: in video aspect ratio settings
+  user: core
+  <source>
+    *: "Fill (Crop)"
+  </source>
+  <dest>
+    *: "Fill (Crop)"
+  </dest>
+  <voice>
+    *: "Fill"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIDEO_STRETCH
+  desc: in video aspect ratio settings
+  user: core
+  <source>
+    *: "Stretch"
+  </source>
+  <dest>
+    *: "Stretch"
+  </dest>
+  <voice>
+    *: "Stretch"
+  </voice>
+</phrase>

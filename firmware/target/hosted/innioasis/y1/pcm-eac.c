@@ -46,14 +46,17 @@ static bool audio_output_enabled = false;
 static volatile sig_atomic_t dma_stopped = 1;
 static volatile sig_atomic_t dma_locked = 0;
 
-#define Y1_BT_PCM_RING_FRAMES 8192
+#define Y1_BT_PCM_RING_FRAMES 32768
+#define Y1_BT_PCM_PREFILL_FRAMES 2048
 static int16_t bt_pcm_ring[Y1_BT_PCM_RING_FRAMES * 2];
 static size_t bt_pcm_ring_read;
 static size_t bt_pcm_ring_write;
 static volatile bool bt_receiver_active;
+static volatile bool bt_receiver_prefilling;
 static volatile bool bt_receiver_mode_power_hold;
 static long bt_receiver_last_pcm_tick;
 static pthread_mutex_t bt_pcm_mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t bt_pcm_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t pcm_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t pcm_cond = PTHREAD_COND_INITIALIZER;
 
@@ -84,15 +87,18 @@ void y1_audio_receiver_set_active(bool active, unsigned long sample_rate)
         return;
     }
     bt_receiver_active = active;
+    bt_receiver_prefilling = active;
     bt_pcm_ring_read = 0;
     bt_pcm_ring_write = 0;
     bt_receiver_last_pcm_tick = current_tick;
+    pthread_cond_broadcast(&bt_pcm_cond);
     pthread_mutex_unlock(&bt_pcm_mtx);
 
     if (active) {
         y1_audio_set_deep_idle(false);
         y1_audio_wake_lock(true);
-        sink_set_freq((uint16_t)sample_rate);
+        current_sampr = sample_rate ? sample_rate : 44100;
+        sink_set_freq((uint16_t)current_sampr);
         if (global_settings.bt_receiver_full_volume)
             audiohw_set_volume(60, 60);
     } else if (dma_stopped != 0) {
@@ -138,6 +144,8 @@ size_t y1_audio_receiver_write(const int16_t *samples, size_t frames)
     }
     if (frames > 0)
         bt_receiver_last_pcm_tick = current_tick;
+    if (written > 0)
+        pthread_cond_signal(&bt_pcm_cond);
     pthread_mutex_unlock(&bt_pcm_mtx);
     return written;
 }
@@ -261,11 +269,9 @@ void audiohw_set_volume(int vol_l, int vol_r)
     pending_vol_l = vol_l;
     pending_vol_r = vol_r;
 
-    if (y1_bt_a2dp_is_streaming())
-    {
-        if (sw_l > 0) sw_l = 0;
-        if (sw_r > 0) sw_r = 0;
-    }
+    /* Never boost PCM digitally above 0 dBFS (prevents S16 clipping on hot tracks) */
+    if (sw_l > 0) sw_l = 0;
+    if (sw_r > 0) sw_r = 0;
 
     pcm_set_master_volume(sw_l, sw_r);
     y1_audio_set_hp_analog_gain(idx_l, idx_r);
@@ -298,6 +304,8 @@ static void *pcm_worker(void *arg)
                     pthread_mutex_unlock(&pcm_mtx);
                     y1_audio_set_output_enabled(false);
                     y1_audio_set_deep_idle(true);
+                    if (y1_display_is_early_suspended() && !y1_usb_is_storage_attached())
+                        y1_power_set_idle_sleep(true);
                     pthread_mutex_lock(&pcm_mtx);
                 }
             }
@@ -313,15 +321,35 @@ static void *pcm_worker(void *arg)
 
         if (y1_audio_receiver_is_active())
         {
-            int16_t samples[512 * 2];
+            static int16_t samples[2048 * 2];
             size_t frames = 0;
             pthread_mutex_lock(&bt_pcm_mtx);
-            while (frames < 512 && bt_pcm_ring_read != bt_pcm_ring_write) {
+            size_t avail = (bt_pcm_ring_write + Y1_BT_PCM_RING_FRAMES - bt_pcm_ring_read)
+                           % Y1_BT_PCM_RING_FRAMES;
+            if (bt_receiver_active &&
+                (avail == 0 || (bt_receiver_prefilling && avail < Y1_BT_PCM_PREFILL_FRAMES)))
+            {
+                struct timespec ts;
+                clock_gettime(CLOCK_REALTIME, &ts);
+                ts.tv_nsec += 50 * 1000 * 1000;
+                if (ts.tv_nsec >= 1000000000L) {
+                    ts.tv_sec += 1;
+                    ts.tv_nsec -= 1000000000L;
+                }
+                pthread_cond_timedwait(&bt_pcm_cond, &bt_pcm_mtx, &ts);
+                avail = (bt_pcm_ring_write + Y1_BT_PCM_RING_FRAMES - bt_pcm_ring_read)
+                        % Y1_BT_PCM_RING_FRAMES;
+            }
+            if (avail > 0)
+                bt_receiver_prefilling = false;
+            while (frames < 2048 && bt_pcm_ring_read != bt_pcm_ring_write) {
                 samples[frames * 2] = bt_pcm_ring[bt_pcm_ring_read * 2];
                 samples[frames * 2 + 1] = bt_pcm_ring[bt_pcm_ring_read * 2 + 1];
                 bt_pcm_ring_read = (bt_pcm_ring_read + 1) % Y1_BT_PCM_RING_FRAMES;
                 frames++;
             }
+            if (bt_pcm_ring_read == bt_pcm_ring_write)
+                bt_receiver_prefilling = true;
             pthread_mutex_unlock(&bt_pcm_mtx);
 
             if (frames == 0) {
@@ -331,15 +359,18 @@ static void *pcm_worker(void *arg)
                 if (audio_output_enabled &&
                     !TIME_BEFORE(current_tick, last_pcm_tick + MAX(HZ / 2, 1)))
                     y1_audio_set_output_enabled(false);
-                usleep(20000);
                 continue;
             }
 
             if (!y1_audio_receiver_is_active())
                 continue;
 
-            if (!audio_output_enabled)
+            if (!audio_output_enabled) {
                 y1_audio_set_output_enabled(true);
+                y1_audio_set_sample_rate(current_sampr);
+            } else {
+                y1_audio_set_sample_rate(current_sampr);
+            }
             if (!y1_audio_receiver_is_active()) {
                 y1_audio_set_output_enabled(false);
                 continue;
@@ -396,11 +427,12 @@ static void *pcm_worker(void *arg)
 
             while (remaining > 0 && dma_stopped == 0 && dma_locked == 0 && !pcm_thread_exit)
             {
-                size_t chunk = remaining > 4096 ? 4096 : (remaining & ~3);
+                bool bt_active = y1_bt_a2dp_is_streaming();
+                size_t max_chunk = bt_active ? 4096 : 16384;
+                size_t chunk = remaining > max_chunk ? max_chunk : (remaining & ~3);
                 if (chunk == 0)
                     break;
 
-                bool bt_active = y1_bt_a2dp_is_streaming();
                 if (bt_active && audio_output_enabled)
                     y1_audio_set_output_enabled(false);
                 else if (!bt_active && (!audio_output_enabled || !y1_audio_is_open()) && dma_stopped == 0)
@@ -591,6 +623,8 @@ static volatile bool rec_thread_running = false;
 static volatile bool rec_thread_exit = false;
 static pthread_mutex_t rec_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t rec_cond = PTHREAD_COND_INITIALIZER;
+static int rec_lock_recursion = 0;
+static volatile sig_atomic_t rec_dma_locked = 0;
 static void *rec_pcm_data = NULL;
 static size_t rec_pcm_size = 0;
 static int rec_mic_gain_db = 12;
@@ -615,12 +649,25 @@ void y1_mic_source_changed(int source)
 
 void pcm_rec_lock(void)
 {
-    pthread_mutex_lock(&rec_mtx);
+    ++rec_lock_recursion;
+    if (rec_lock_recursion == 1)
+    {
+        pthread_mutex_lock(&rec_mtx);
+        rec_dma_locked = 1;
+        pthread_mutex_unlock(&rec_mtx);
+    }
 }
 
 void pcm_rec_unlock(void)
 {
-    pthread_mutex_unlock(&rec_mtx);
+    --rec_lock_recursion;
+    if (rec_lock_recursion == 0)
+    {
+        pthread_mutex_lock(&rec_mtx);
+        rec_dma_locked = 0;
+        pthread_cond_signal(&rec_cond);
+        pthread_mutex_unlock(&rec_mtx);
+    }
 }
 
 static void *rec_worker(void *arg)
@@ -628,56 +675,88 @@ static void *rec_worker(void *arg)
     (void)arg;
     while (!rec_thread_exit)
     {
+        void *buf = NULL;
+        size_t sz = 0;
+
         pthread_mutex_lock(&rec_mtx);
-        while (!rec_thread_running && !rec_thread_exit)
+        while ((!rec_thread_running || rec_dma_locked || !rec_pcm_data || rec_pcm_size == 0) && !rec_thread_exit)
         {
             pthread_cond_wait(&rec_cond, &rec_mtx);
+        }
+        if (!rec_thread_exit)
+        {
+            buf = rec_pcm_data;
+            sz = rec_pcm_size;
         }
         pthread_mutex_unlock(&rec_mtx);
 
         if (rec_thread_exit)
             break;
 
-        if (rec_pcm_data && rec_pcm_size > 0)
+        if (buf && sz > 0)
         {
             ssize_t bytes_read = -1;
-            size_t chunk = rec_pcm_size > 4096 ? 4096 : rec_pcm_size;
+            size_t chunk = sz > 4096 ? 4096 : sz;
             if (active_mic_source == Y1_MIC_BLUETOOTH)
             {
-                bytes_read = y1_bt_read_mic_pcm(rec_pcm_data, chunk);
+                bytes_read = y1_bt_read_mic_pcm(buf, chunk);
             }
             else
             {
-                bytes_read = y1_audio_rec_read(rec_pcm_data, chunk);
+                bytes_read = y1_audio_rec_read(buf, chunk);
             }
 
             if (bytes_read <= 0)
             {
-                memset(rec_pcm_data, 0, chunk);
+                memset(buf, 0, chunk);
                 usleep(20000);
                 bytes_read = (ssize_t)chunk;
             }
-
-            rec_pcm_data = (char *)rec_pcm_data + bytes_read;
-            rec_pcm_size -= (size_t)bytes_read;
-
-            if (rec_pcm_size == 0)
+            else if ((size_t)bytes_read > chunk)
             {
-                if (!pcm_rec_dma_complete_callback(PCM_DMAST_OK, &rec_pcm_data, &rec_pcm_size))
+                bytes_read = (ssize_t)chunk;
+            }
+
+            pthread_mutex_lock(&rec_mtx);
+            if (rec_thread_running && !rec_dma_locked && rec_pcm_data == buf && rec_pcm_size == sz)
+            {
+                rec_pcm_data = (char *)rec_pcm_data + bytes_read;
+                rec_pcm_size -= (size_t)bytes_read;
+
+                if (rec_pcm_size == 0)
                 {
-                    rec_thread_running = false;
-                    rec_pcm_data = NULL;
-                    rec_pcm_size = 0;
+                    pthread_mutex_unlock(&rec_mtx);
+                    void *next_data = NULL;
+                    size_t next_size = 0;
+                    if (!pcm_rec_dma_complete_callback(PCM_DMAST_OK, &next_data, &next_size))
+                    {
+                        pthread_mutex_lock(&rec_mtx);
+                        rec_thread_running = false;
+                        rec_pcm_data = NULL;
+                        rec_pcm_size = 0;
+                        pthread_mutex_unlock(&rec_mtx);
+                    }
+                    else
+                    {
+                        pthread_mutex_lock(&rec_mtx);
+                        if (rec_thread_running)
+                        {
+                            rec_pcm_data = next_data;
+                            rec_pcm_size = next_size;
+                        }
+                        pthread_mutex_unlock(&rec_mtx);
+                        pcm_rec_dma_status_callback(PCM_DMAST_STARTED);
+                    }
                 }
                 else
                 {
-                    pcm_rec_dma_status_callback(PCM_DMAST_STARTED);
+                    pthread_mutex_unlock(&rec_mtx);
                 }
             }
-        }
-        else
-        {
-            usleep(5000);
+            else
+            {
+                pthread_mutex_unlock(&rec_mtx);
+            }
         }
     }
     return NULL;

@@ -83,8 +83,20 @@ static bool scroll_abc_is_fast_wheel_action(void)
     return fast;
 }
 
+static const ucschar_t scroll_abc_hangul_initials[] = {
+    0x3131, 0x3132, 0x3134, 0x3137, 0x3138, 0x3139, 0x3141,
+    0x3142, 0x3143, 0x3145, 0x3146, 0x3147, 0x3148, 0x3149,
+    0x314a, 0x314b, 0x314c, 0x314d, 0x314e
+};
+
 static ucschar_t scroll_abc_fold(ucschar_t ch)
 {
+    if (ch >= 0xac00 && ch <= 0xd7a3)
+        return scroll_abc_hangul_initials[(ch - 0xac00) / 588];
+
+    if (ch >= 0x1100 && ch <= 0x1112)
+        return scroll_abc_hangul_initials[ch - 0x1100];
+
     if ((ch >= 'A' && ch <= 'Z') ||
         (ch >= 0x00c0 && ch <= 0x00d6) ||
         (ch >= 0x00d8 && ch <= 0x00de) ||
@@ -103,17 +115,24 @@ static ucschar_t scroll_abc_fold(ucschar_t ch)
 
 static ucschar_t scroll_abc_display_char(ucschar_t ch)
 {
-    static const ucschar_t hangul_initials[] = {
-        0x3131, 0x3132, 0x3134, 0x3137, 0x3138, 0x3139, 0x3141,
-        0x3142, 0x3143, 0x3145, 0x3146, 0x3147, 0x3148, 0x3149,
-        0x314a, 0x314b, 0x314c, 0x314d, 0x314e
-    };
-
-    if (ch >= 'a' && ch <= 'z')
-        return ch - ('a' - 'A');
-
     if (ch >= 0xac00 && ch <= 0xd7a3)
-        return hangul_initials[(ch - 0xac00) / 588];
+        return scroll_abc_hangul_initials[(ch - 0xac00) / 588];
+
+    if (ch >= 0x1100 && ch <= 0x1112)
+        return scroll_abc_hangul_initials[ch - 0x1100];
+
+    if ((ch >= 'a' && ch <= 'z') ||
+        (ch >= 0x00e0 && ch <= 0x00f6) ||
+        (ch >= 0x00f8 && ch <= 0x00fe) ||
+        (ch >= 0x03b1 && ch <= 0x03c1) ||
+        (ch >= 0x03c3 && ch <= 0x03cb) ||
+        (ch >= 0x0430 && ch <= 0x044f) ||
+        (ch >= 0x0561 && ch <= 0x0586) ||
+        (ch >= 0xff41 && ch <= 0xff5a))
+        return ch - 0x20;
+
+    if (ch == 0x0451)
+        return 0x0401;
 
     return ch;
 }

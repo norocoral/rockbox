@@ -993,7 +993,7 @@ static int menu_power_off_settings(void)
     sys_poweroff();
     return 0;
 }
-MENUITEM_FUNCTION(power_off_setting_item, 0, "Power Off",
+MENUITEM_FUNCTION(power_off_setting_item, 0, ID2P(LANG_POWER_OFF),
                   menu_power_off_settings, NULL, Icon_System_menu);
 
 static int menu_reboot_settings(void)
@@ -1001,7 +1001,7 @@ static int menu_reboot_settings(void)
     sys_reboot();
     return 0;
 }
-MENUITEM_FUNCTION(reboot_setting_item, 0, "Reboot",
+MENUITEM_FUNCTION(reboot_setting_item, 0, ID2P(LANG_REBOOT),
                   menu_reboot_settings, NULL, Icon_System_menu);
 #endif
 #endif

@@ -183,7 +183,7 @@ static int browser(void* param)
 #ifdef INNIOASIS_Y1
             if (y1_usb_get_ipod_mode() && !tagcache_is_usable())
             {
-                splash(HZ*2, "Sync with iTunes to load database");
+                splash(HZ*2, ID2P(LANG_Y1_SYNC_ITUNES_DB));
                 break;
             }
 #endif

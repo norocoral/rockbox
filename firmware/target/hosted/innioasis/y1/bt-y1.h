@@ -59,6 +59,7 @@ enum y1_bt_receiver_command {
 };
 
 void y1_bt_init(void);
+void y1_bt_ensure_wmt_ready(void);
 void y1_bt_set_enabled(bool enable);
 bool y1_bt_is_enabled(void);
 void y1_bt_set_receiver_mode(bool enable);

@@ -720,13 +720,13 @@ static int toggle_favorite_inline(void)
         tagcache_update_numeric(id3->tagcache_idx - 1, tag_favorite, id3->favorite);
         if (y1_ipod_native_is_active())
             y1_ipod_native_record_favorite(id3->path, id3->favorite != 0);
-        splash(HZ, id3->favorite ? "Added to Favorites" : "Removed from Favorites");
+        splash(HZ, id3->favorite ? ID2P(LANG_Y1_ADDED_FAVORITES) : ID2P(LANG_Y1_REMOVED_FAVORITES));
     }
     else
         splash(HZ*2, ID2P(LANG_ID3_NO_INFO));
     return 0;
 }
-MENUITEM_FUNCTION(favorite_item, 0, "Toggle Favorite",
+MENUITEM_FUNCTION(favorite_item, 0, ID2P(LANG_Y1_TOGGLE_FAVORITE),
                   toggle_favorite_inline,
                   ratingitem_callback, Icon_Bookmark);
 #endif

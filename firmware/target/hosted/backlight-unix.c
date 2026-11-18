@@ -105,10 +105,13 @@ static int last_bl = -1;
 static void y1_enter_kernel_early_suspend(void)
 {
     y1_display_enter_early_suspend();
+    if (!y1_playback_active())
+        y1_power_set_idle_sleep(true);
 }
 
 static void y1_exit_kernel_early_suspend(void)
 {
+    y1_power_set_idle_sleep(false);
     y1_display_exit_early_suspend();
 }
 

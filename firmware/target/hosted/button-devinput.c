@@ -39,6 +39,7 @@
 #if defined(INNIOASIS_Y1)
 #include "innioasis/y1/button-target.h"
 #include "innioasis/y1/y1-log.h"
+#include "liby1.h"
 #endif
 
 #ifdef HAVE_SCROLLWHEEL
@@ -446,6 +447,18 @@ int button_read_device(BDATA)
             }
         }
     }
+
+#if defined(INNIOASIS_Y1)
+    /* Grab userspace wakelock immediately on any wake input so kernel autosleep
+     * cannot re-enter mem suspend before backlight_thread turns the screen on. */
+    if ((newly_pressed != 0
+#ifdef HAVE_SCROLLWHEEL
+         || wheel_ticks != 0
+#endif
+        ) && y1_display_is_early_suspended()) {
+        y1_power_set_idle_sleep(false);
+    }
+#endif
 
 #ifdef HAVE_SCROLLWHEEL
     /* Reset backlight and poweroff timers */

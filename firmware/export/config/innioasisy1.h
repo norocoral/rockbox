@@ -57,10 +57,11 @@
                        SAMPR_CAP_24 | SAMPR_CAP_22 | SAMPR_CAP_16 | \
                        SAMPR_CAP_12 | SAMPR_CAP_11 | SAMPR_CAP_8)
 
-/* FM Radio */
-#define CONFIG_TUNER INNIOASIS_Y1_TUNER
+/* FM Radio (Temporarily disabled) */
+/* #define CONFIG_TUNER INNIOASIS_Y1_TUNER */
 
-/* Microphone & Recording */
+/* Microphone & Recording (Temporarily disabled) */
+/*
 #define AUDIOHW_CAPS (MIC_GAIN_CAP | LIN_GAIN_CAP)
 #define HAVE_RECORDING
 #define HAVE_FMRADIO_REC
@@ -72,6 +73,7 @@
 #define DEFAULT_REC_LEFT_GAIN   12
 #define DEFAULT_REC_RIGHT_GAIN  12
 #define DEFAULT_REC_SRC         0
+*/
 
 /* LED / Virtual Disk Access */
 #define CONFIG_LED LED_VIRTUAL
