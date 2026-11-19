@@ -367,7 +367,13 @@ static int convert_m3u_name(char* buf, int buf_len, int buf_max, char* temp)
 static void create_control_unlocked(struct playlist_info* playlist)
 {
     if (playlist == &current_playlist && file_exists(PLAYLIST_CONTROL_FILE))
-        rename(PLAYLIST_CONTROL_FILE, PLAYLIST_CONTROL_FILE".old");
+    {
+        if (rename(PLAYLIST_CONTROL_FILE, PLAYLIST_CONTROL_FILE".old") < 0)
+        {
+            remove(PLAYLIST_CONTROL_FILE".old");
+            rename(PLAYLIST_CONTROL_FILE, PLAYLIST_CONTROL_FILE".old");
+        }
+    }
 
     playlist->control_fd = open(playlist->control_filename,
                                 O_CREAT|O_RDWR|O_TRUNC, 0666);
@@ -3228,7 +3234,11 @@ int playlist_resume(void)
     control_file_size = ffilesize(playlist->control_fd);
     if (control_file_size <= 0)
     {
-        notify_control_access_error();
+        /* Empty/truncated control file (e.g. after crash/unclean shutdown):
+         * remove it cleanly instead of nagging on every boot/resume. */
+        pl_close_fd(&playlist->control_fd);
+        playlist->control_created = false;
+        remove(playlist->control_filename);
         goto out;
     }
 
@@ -3237,7 +3247,9 @@ int playlist_resume(void)
     nread = read(playlist->control_fd, buffer, readsize);
     if(nread <= 0)
     {
-        notify_control_access_error();
+        pl_close_fd(&playlist->control_fd);
+        playlist->control_created = false;
+        remove(playlist->control_filename);
         goto out;
     }
 

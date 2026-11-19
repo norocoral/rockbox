@@ -30,6 +30,10 @@
 #include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
+#if defined(INNIOASIS_Y1)
+#include <stdint.h>
+#include <time.h>
+#endif
 
 #include "kernel.h"
 #include "sysfs.h"
@@ -334,6 +338,9 @@ int button_read_device(BDATA)
 #ifdef HAVE_SCROLLWHEEL
     int wheel_ticks = 0;
 #endif
+#if defined(INNIOASIS_Y1)
+    bool raw_wake_key = false;
+#endif
 
 #ifdef BUTTON_DELAY_RELEASE
     /* First de-assert delayed-release buttons */
@@ -363,6 +370,11 @@ int button_read_device(BDATA)
                 if(size == (int)sizeof(event)) {
                     switch(event.type) {
                     case EV_KEY: {
+#if defined(INNIOASIS_Y1)
+                        if (!is_accdet_dev[i] && event.value &&
+                            y1_display_is_early_suspended())
+                            raw_wake_key = true;
+#endif
 #if defined(HAVE_CUSTOM_KEY_HANDLER)
                         if (button_handle_key_event(event.code, event.value, is_accdet_dev[i]))
                             break;
@@ -449,14 +461,49 @@ int button_read_device(BDATA)
     }
 
 #if defined(INNIOASIS_Y1)
-    /* Grab userspace wakelock immediately on any wake input so kernel autosleep
-     * cannot re-enter mem suspend before backlight_thread turns the screen on. */
-    if ((newly_pressed != 0
+    /* Detect resume from kernel mem suspend even if the wakeup IRQ/key
+     * (e.g. KEY_POWER or consumed GPIO wake) did not emit a mapped EV_KEY:
+     * CLOCK_MONOTONIC freezes during mem suspend while CLOCK_REALTIME ticks. */
+    bool mem_resumed = false;
+    {
+        static bool have_prev_delta = false;
+        static int64_t prev_delta_ns = 0;
+        struct timespec rt, mt;
+        if (clock_gettime(CLOCK_REALTIME, &rt) == 0 &&
+            clock_gettime(CLOCK_MONOTONIC, &mt) == 0) {
+            int64_t delta_ns =
+                ((int64_t)rt.tv_sec - (int64_t)mt.tv_sec) * 1000000000LL +
+                ((int64_t)rt.tv_nsec - (int64_t)mt.tv_nsec);
+            if (have_prev_delta && y1_display_is_early_suspended() &&
+                (delta_ns - prev_delta_ns) > 200000000LL) {
+                mem_resumed = true;
+            }
+            prev_delta_ns = delta_ns;
+            have_prev_delta = true;
+        }
+    }
+
+    /* Grab userspace wakelock immediately on any wake input or mem-suspend
+     * resume so kernel autosleep cannot re-enter mem suspend before
+     * backlight_thread turns the screen on. */
+    if ((newly_pressed != 0 || raw_wake_key || mem_resumed
 #ifdef HAVE_SCROLLWHEEL
          || wheel_ticks != 0
 #endif
         ) && y1_display_is_early_suspended()) {
         y1_power_set_idle_sleep(false);
+        if (newly_pressed == 0
+#ifdef HAVE_SCROLLWHEEL
+            && wheel_ticks == 0
+#endif
+           ) {
+            extern bool is_keys_locked(void);
+            if (!is_keys_locked() || (backlight_get_current_timeout() >= 0)) {
+                backlight_on();
+                buttonlight_on();
+                reset_poweroff_timer();
+            }
+        }
     }
 #endif
 
