@@ -206,6 +206,7 @@ static int statusbar_callback(int action,
 
 MENUITEM_SETTING(scrollbar_item, &global_settings.scrollbar, NULL);
 MENUITEM_SETTING(scrollbar_width, &global_settings.scrollbar_width, NULL);
+MENUITEM_SETTING(scrollbar_track_only, &global_settings.scrollbar_track_only, NULL);
 MENUITEM_SETTING(statusbar, &global_settings.statusbar, statusbar_callback);
 #ifdef HAVE_REMOTE_LCD
 MENUITEM_SETTING(remote_statusbar, &global_settings.remote_statusbar,
@@ -216,7 +217,7 @@ MENUITEM_SETTING(volume_type, &global_settings.volume_type, NULL);
 MENUITEM_SETTING(battery_display, &global_settings.battery_display, NULL);
 #endif
 MAKE_MENU(bars_menu, ID2P(LANG_BARS_MENU), 0, Icon_NOICON,
-          &scrollbar_item, &scrollbar_width, &statusbar,
+          &scrollbar_item, &scrollbar_width, &scrollbar_track_only, &statusbar,
 #ifdef HAVE_REMOTE_LCD
           &remote_statusbar,
 #endif
@@ -414,6 +415,11 @@ MENUITEM_SETTING(sep_menu, &global_settings.list_separator_height, NULL);
 #endif
 #if defined(INNIOASIS_Y1) && LCD_DEPTH == 16
 MENUITEM_SETTING(navigation_fade_setting, &global_settings.navigation_fade, NULL);
+MENUITEM_SETTING(y1_aa_image_setting, &global_settings.y1_aa_image, NULL);
+MENUITEM_SETTING(y1_aa_text_setting, &global_settings.y1_aa_text, NULL);
+MENUITEM_SETTING(y1_transparency_plus_setting, &global_settings.y1_transparency_plus, NULL);
+MAKE_MENU(y1_rendering_menu, ID2P(LANG_Y1_RENDERING_MENU), NULL, Icon_Config,
+          &y1_aa_image_setting, &y1_aa_text_setting, &y1_transparency_plus_setting);
 #endif
 #if defined(HAVE_LCD_COLOR) && defined(HAVE_ALBUMART)
 MENUITEM_SETTING(dynamic_colors_enabled, &global_settings.dynamic_colors, NULL);
@@ -469,6 +475,7 @@ MAKE_MENU(theme_menu, ID2P(LANG_THEME_MENU),
             &colors_settings,
 #if defined(INNIOASIS_Y1) && LCD_DEPTH == 16
             &navigation_fade_setting,
+            &y1_rendering_menu,
 #endif
 #if defined(HAVE_ALBUMART)
             &dynamic_colors_menu,

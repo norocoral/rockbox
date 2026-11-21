@@ -580,6 +580,9 @@ extern void lcd_set_invert_display(bool yesno);
     extern void lcd_set_backlight_inversion(bool yesno);
 #endif /* HAVE_BACKLIGHT_INVERSION */
 extern void lcd_set_flip(bool yesno);
+#if defined(INNIOASIS_Y1) && LCD_DEPTH == 16
+extern void lcd_set_rendering_options(bool aa_image, bool aa_text, bool trans_plus);
+#endif
 
 extern void lcd_set_drawmode(int mode);
 extern int  lcd_get_drawmode(void);

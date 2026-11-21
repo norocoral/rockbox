@@ -136,6 +136,7 @@ enum skin_token_type {
     SKIN_TOKEN_RTC_MONTH_NAME,
     SKIN_TOKEN_RTC_DAY_OF_WEEK_START_MON,
     SKIN_TOKEN_RTC_DAY_OF_WEEK_START_SUN,
+    SKIN_TOKEN_RTC_LOCALIZED_DATE,
 
     SKIN_TOKENS_RTC_END,     /* just the end marker, not an actual token */
 

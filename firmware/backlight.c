@@ -444,20 +444,22 @@ static void backlight_setup_fade_up(void)
 {
     if (backlight_fading_type & FADING_UP)
     {
+#if defined(INNIOASIS_Y1)
+        /* Wake immediately at full configured brightness instead of stepping
+         * down to MIN_BRIGHTNESS_SETTING and fading up slowly across deep sleep. */
+        backlight_fading_state = NOT_FADING;
+        _backlight_fade_update_state(backlight_brightness);
+        backlight_hw_on();
+        backlight_hw_brightness(backlight_brightness);
+        return;
+#else
         if (backlight_fading_state == NOT_FADING)
         {
-#if defined(INNIOASIS_Y1)
-            extern bool y1_is_backlight_active(void);
-            if (y1_is_backlight_active())
-            {
-                backlight_hw_on();
-                return;
-            }
-#endif
             /* make sure the backlight is at lowest level */
             backlight_hw_on();
         }
         backlight_fading_state = FADING_UP;
+#endif
     }
     else
     {
@@ -966,6 +968,10 @@ void backlight_recheck_hold_rules(void)
 
 void backlight_set_timeout(int value)
 {
+#ifdef INNIOASIS_Y1
+    if (value < 0)
+        value = 15;
+#endif
     backlight_timeout_normal = HZ * value;
     queue_remove_from_head(&backlight_queue, BACKLIGHT_TMO_CHANGED);
     queue_post(&backlight_queue, BACKLIGHT_TMO_CHANGED, 0);
@@ -974,6 +980,10 @@ void backlight_set_timeout(int value)
 #if CONFIG_CHARGING
 void backlight_set_timeout_plugged(int value)
 {
+#ifdef INNIOASIS_Y1
+    if (value < 0)
+        value = 15;
+#endif
     backlight_timeout_plugged = HZ * value;
     queue_remove_from_head(&backlight_queue, BACKLIGHT_TMO_CHANGED);
     queue_post(&backlight_queue, BACKLIGHT_TMO_CHANGED, 0);

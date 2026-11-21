@@ -44,7 +44,7 @@ static int pf_sb_top = 0;
 #define PF_ABC_OVERLAY_TICKS (2 * HZ)
 #define PF_ABC_RADIUS 26
 #define PF_ABC_FAST_WINDOW (HZ / 10)
-#define PF_ABC_REQUIRED_STREAK 12
+#define PF_ABC_REQUIRED_STREAK 24
 
 static char scroll_abc_overlay[5];
 static long scroll_abc_overlay_tick;

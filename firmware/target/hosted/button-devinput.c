@@ -180,6 +180,19 @@ void button_add_input_device(int i)
             strstr(dev_name, "Headset") != NULL)
         {
             is_accdet_dev[i] = true;
+            char wake_path[128];
+            snprintf(wake_path, sizeof(wake_path),
+                     "/sys/class/input/event%d/device/power/wakeup", i);
+            int wfd = open(wake_path, O_WRONLY);
+            if (wfd >= 0) {
+                (void)write(wfd, "enabled\n", 8);
+                close(wfd);
+            }
+            wfd = open("/sys/devices/platform/Accdet_Driver/power/wakeup", O_WRONLY);
+            if (wfd >= 0) {
+                (void)write(wfd, "enabled\n", 8);
+                close(wfd);
+            }
         }
 
 #if defined(INNIOASIS_Y1)
@@ -329,12 +342,18 @@ static void handle_touchscreen_event(__u16 code, __s32 value)
 int button_read_device(BDATA)
 {
     static int pending_release = 0;
+    static int pending_release_ticks = 0;
     struct input_event event;
     int newly_pressed = 0;
 
     if (pending_release) {
-        button_bitmap &= ~pending_release;
-        pending_release = 0;
+        if (pending_release_ticks > 0) {
+            pending_release_ticks--;
+        }
+        if (pending_release_ticks == 0) {
+            button_bitmap &= ~pending_release;
+            pending_release = 0;
+        }
     }
 
 #if defined(HAVE_BUTTON_DATA) && !defined(HAVE_TOUCHSCREEN)
@@ -434,9 +453,11 @@ int button_read_device(BDATA)
 #endif
                             if (bmap & newly_pressed) {
                                 /* If pressed and released within the same poll cycle
-                                 * (e.g. keypress waking from sleep), hold for one tick
-                                 * so button_tick() reliably registers the press. */
+                                 * (e.g. keypress waking from sleep), hold for 2 ticks
+                                 * so button_tick() debounce (btn == last_read) reliably
+                                 * registers the press on the very first click. */
                                 pending_release |= (bmap & newly_pressed);
+                                pending_release_ticks = 2;
                             } else {
                                 button_bitmap &= ~bmap;
                             }
@@ -490,31 +511,28 @@ int button_read_device(BDATA)
     }
 
     if (mem_resumed) {
-        /* Touch/key release events may be swallowed across kernel mem suspend. */
-        button_bitmap = 0;
-        pending_release = 0;
+        /* Clear stale buttons held from before mem suspend, but preserve any
+         * newly_pressed wakeup button just read in this poll cycle. */
+        button_bitmap &= newly_pressed;
+        pending_release &= newly_pressed;
+        if (!pending_release)
+            pending_release_ticks = 0;
     }
 
-    /* Grab userspace wakelock immediately on any wake input or mem-suspend
-     * resume so kernel autosleep cannot re-enter mem suspend before
-     * backlight_thread turns the screen on. */
+    /* Grab userspace wakelock and turn backlight on immediately on any wake
+     * input or mem-suspend resume so a single click wakes the screen even
+     * after deep sleep (5+ sec). */
     if ((newly_pressed != 0 || raw_wake_key || mem_resumed
 #ifdef HAVE_SCROLLWHEEL
          || wheel_ticks != 0
 #endif
         ) && y1_display_is_early_suspended()) {
         y1_power_set_idle_sleep(false);
-        if (newly_pressed == 0
-#ifdef HAVE_SCROLLWHEEL
-            && wheel_ticks == 0
-#endif
-           ) {
-            extern bool is_keys_locked(void);
-            if (!is_keys_locked() || (backlight_get_current_timeout() >= 0)) {
-                backlight_on();
-                buttonlight_on();
-                reset_poweroff_timer();
-            }
+        extern bool is_keys_locked(void);
+        if (!is_keys_locked() || (backlight_get_current_timeout() >= 0)) {
+            backlight_on();
+            buttonlight_on();
+            reset_poweroff_timer();
         }
     }
 #endif

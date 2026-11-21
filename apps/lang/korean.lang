@@ -3467,6 +3467,76 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_DATE_FORMAT
+  desc: select the date format
+  user: core
+  <source>
+    *: "Date Format"
+  </source>
+  <dest>
+    *: "날짜 형식"
+  </dest>
+  <voice>
+    *: "날짜 형식"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_DATE_FORMAT_YMD
+  desc: date format YYYY-MM-DD
+  user: core
+  <source>
+    *: "YYYY-MM-DD"
+  </source>
+  <dest>
+    *: "YYYY-MM-DD"
+  </dest>
+  <voice>
+    *: "년 월 일"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_DATE_FORMAT_MDY
+  desc: date format MM/DD/YYYY
+  user: core
+  <source>
+    *: "MM/DD/YYYY"
+  </source>
+  <dest>
+    *: "MM/DD/YYYY"
+  </dest>
+  <voice>
+    *: "월 일 년"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_DATE_FORMAT_DMY
+  desc: date format DD/MM/YYYY
+  user: core
+  <source>
+    *: "DD/MM/YYYY"
+  </source>
+  <dest>
+    *: "DD/MM/YYYY"
+  </dest>
+  <voice>
+    *: "일 월 년"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_DATE_FORMAT_TEXT
+  desc: date format Month Day Year
+  user: core
+  <source>
+    *: "Month Day Year"
+  </source>
+  <dest>
+    *: "월 일 년 (문자)"
+  </dest>
+  <voice>
+    *: "월 일 년"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_12_HOUR_CLOCK
   desc: option for 12 hour clock
   user: core
@@ -9215,6 +9285,62 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_Y1_VIBRATIONS
+  desc: in keyclick settings menu
+  user: core
+  <source>
+    *: "Vibrations"
+  </source>
+  <dest>
+    *: "진동"
+  </dest>
+  <voice>
+    *: "진동"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIBRATE_ENABLED
+  desc: in vibrations settings menu
+  user: core
+  <source>
+    *: "Vibration"
+  </source>
+  <dest>
+    *: "진동 사용"
+  </dest>
+  <voice>
+    *: "진동 사용"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIBRATE_MS
+  desc: in vibrations settings menu
+  user: core
+  <source>
+    *: "Vibration Duration"
+  </source>
+  <dest>
+    *: "진동 시간"
+  </dest>
+  <voice>
+    *: "진동 시간"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIBRATE_REPEAT
+  desc: in vibrations settings menu
+  user: core
+  <source>
+    *: "Vibration Repeat"
+  </source>
+  <dest>
+    *: "반복 진동"
+  </dest>
+  <voice>
+    *: "반복 진동"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_ACCESSORY_SUPPLY
   desc: in system settings menu
   user: core
@@ -9971,6 +10097,48 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_TIMESTRETCH_ALGO
+  desc: in timestretch settings
+  user: core
+  <source>
+    *: "Algorithm"
+  </source>
+  <dest>
+    *: "알고리즘"
+  </dest>
+  <voice>
+    *: "알고리즘"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_TIMESTRETCH_WSOLA
+  desc: in timestretch algorithm settings
+  user: core
+  <source>
+    *: "WSOLA"
+  </source>
+  <dest>
+    *: "WSOLA"
+  </dest>
+  <voice>
+    *: "WSOLA"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_TIMESTRETCH_TDHS
+  desc: in timestretch algorithm settings
+  user: core
+  <source>
+    *: "TDHS"
+  </source>
+  <dest>
+    *: "TDHS"
+  </dest>
+  <voice>
+    *: "TDHS"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_SPEED
   desc: timestretch speed
   user: core
@@ -10228,6 +10396,20 @@
   </dest>
   <voice>
     *: "스크롤바 폭"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_SCROLLBAR_TRACK_ONLY
+  desc: in Settings -> General -> Display -> Status-/Scrollbar
+  user: core
+  <source>
+    *: "Scrollbar Track Only"
+  </source>
+  <dest>
+    *: "스크롤바 트랙만 표시"
+  </dest>
+  <voice>
+    *: "스크롤바 트랙만 표시"
   </voice>
 </phrase>
 <phrase>
@@ -11318,6 +11500,20 @@
   </dest>
   <voice>
     *: "기본 절전 타이머 기간"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_SLEEP_TIMER_FADEOUT
+  desc: sleep timer volume fade-out duration
+  user: core
+  <source>
+    *: "Sleep Timer Fade-Out"
+  </source>
+  <dest>
+    *: "절전 타이머 페이드아웃"
+  </dest>
+  <voice>
+    *: "절전 타이머 페이드아웃"
   </voice>
 </phrase>
 <phrase>
@@ -17695,6 +17891,62 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_Y1_OUTPUT_PROFILES
+  desc: in Sound Settings
+  user: core
+  <source>
+    *: "Output Profiles"
+  </source>
+  <dest>
+    *: "출력 프로필"
+  </dest>
+  <voice>
+    *: "출력 프로필"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_AUTO_REMEMBER
+  desc: in Output Profiles menu
+  user: core
+  <source>
+    *: "Auto-Remember"
+  </source>
+  <dest>
+    *: "자동 기억"
+  </dest>
+  <voice>
+    *: "자동 기억"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_WIRED_VOL_LIMIT
+  desc: in Output Profiles menu
+  user: core
+  <source>
+    *: "Wired Volume Limit"
+  </source>
+  <dest>
+    *: "유선 볼륨 제한"
+  </dest>
+  <voice>
+    *: "유선 볼륨 제한"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_BT_VOL_LIMIT
+  desc: in Output Profiles menu
+  user: core
+  <source>
+    *: "Bluetooth Volume Limit"
+  </source>
+  <dest>
+    *: "블루투스 볼륨 제한"
+  </dest>
+  <voice>
+    *: "블루투스 볼륨 제한"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_Y1_KEYCLICK_WHEEL_ONLY
   desc: in keyclick settings menu
   user: core
@@ -18868,10 +19120,10 @@
   desc: in CPU mode settings
   user: core
   <source>
-    *: "Power Saver (598MHz Underclock)"
+    *: "Power Saver (390MHz Underclock)"
   </source>
   <dest>
-    *: "절전 (598MHz 언더클럭)"
+    *: "절전 (390MHz 언더클럭)"
   </dest>
   <voice>
     *: "절전"
@@ -19001,5 +19253,61 @@
   </dest>
   <voice>
     *: "파일 재생목록"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_RENDERING_MENU
+  desc: Rendering submenu in Theme Settings
+  user: core
+  <source>
+    *: "Rendering"
+  </source>
+  <dest>
+    *: "렌더링"
+  </dest>
+  <voice>
+    *: "렌더링"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_AA_IMAGE
+  desc: Antialiasing Image setting in Rendering menu
+  user: core
+  <source>
+    *: "Antialiasing Image"
+  </source>
+  <dest>
+    *: "이미지 안티에일리어싱"
+  </dest>
+  <voice>
+    *: "이미지 안티에일리어싱"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_AA_TEXT
+  desc: Antialiasing Text setting in Rendering menu
+  user: core
+  <source>
+    *: "Antialiasing Text"
+  </source>
+  <dest>
+    *: "텍스트 안티에일리어싱"
+  </dest>
+  <voice>
+    *: "텍스트 안티에일리어싱"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_TRANSPARENCY_PLUS
+  desc: Transparency Plus setting in Rendering menu
+  user: core
+  <source>
+    *: "Transparency Plus"
+  </source>
+  <dest>
+    *: "투명도 향상"
+  </dest>
+  <voice>
+    *: "투명도 향상"
   </voice>
 </phrase>

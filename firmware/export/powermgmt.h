@@ -162,6 +162,7 @@ void set_battery_capacity(int capacity); /* set local battery capacity value */
 int get_battery_capacity(void); /* get local battery capacity value */
 
 void set_sleeptimer_duration(int minutes);
+void set_sleeptimer_fadeout(int minutes);
 bool get_sleep_timer_active(void);
 int get_sleep_timer(void);
 void set_keypress_restarts_sleep_timer(bool enable);

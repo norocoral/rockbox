@@ -112,6 +112,7 @@ static void y1_enter_kernel_early_suspend(void)
 static void y1_exit_kernel_early_suspend(void)
 {
     y1_power_set_idle_sleep(false);
+    y1_set_screen_off_power_mode(false);
     y1_display_exit_early_suspend();
 }
 
@@ -149,20 +150,30 @@ bool y1_is_screen_sleeping(void)
 
 void backlight_hw_on(void)
 {
-    if (last_bl != BACKLIGHT_POWER_ON) {
+    if (last_bl != BACKLIGHT_POWER_ON
+#if defined(BACKLIGHT_INNIOASIS)
+        || y1_display_is_early_suspended()
+#endif
+#ifdef HAVE_LCD_ENABLE
+        || !lcd_active()
+#endif
+       ) {
         last_bl = BACKLIGHT_POWER_ON;
         if (sysfs_bl_power)
             sysfs_set_int(sysfs_bl_power, last_bl);
 #if defined(BACKLIGHT_INNIOASIS)
-        y1_exit_kernel_early_suspend();
         y1_set_screen_off_power_mode(false);
+        y1_exit_kernel_early_suspend();
 #endif
 #ifdef HAVE_LCD_ENABLE
         lcd_enable(true);
 #endif
 #if defined(BACKLIGHT_INNIOASIS)
+        lcd_update();
         int target_br = y1_get_effective_brightness();
         int hw_val = (target_br * 255) / 100;
+        if (hw_val < 3)
+            hw_val = 3;
         write_bl_hw(hw_val);
 #endif
     } else {
@@ -205,14 +216,26 @@ void backlight_hw_brightness(int brightness)
     /* cap range, just in case */
     if (brightness > MAX_BRIGHTNESS_SETTING)
         brightness = MAX_BRIGHTNESS_SETTING;
-    if (brightness < 0)
-        brightness = 0;
+    if (brightness < MIN_BRIGHTNESS_SETTING)
+        brightness = MIN_BRIGHTNESS_SETTING;
 
     if (brightness > 0)
         current_brightness = brightness;
 
 #if defined(BACKLIGHT_INNIOASIS)
     if (last_bl == BACKLIGHT_POWER_ON || last_bl == -1) {
+        if (y1_display_is_early_suspended()
+#ifdef HAVE_LCD_ENABLE
+            || !lcd_active()
+#endif
+           ) {
+            y1_set_screen_off_power_mode(false);
+            y1_exit_kernel_early_suspend();
+#ifdef HAVE_LCD_ENABLE
+            lcd_enable(true);
+#endif
+            lcd_update();
+        }
         int eff = y1_get_effective_brightness();
         int hw_val = (eff * 255) / 100;
         write_bl_hw(hw_val);
@@ -237,6 +260,8 @@ void lcd_awake(void)
 void lcd_sleep(void)
 {
     y1_logf("[backlight-unix] lcd_sleep() called (last_bl=%d)\n", last_bl);
+    last_bl = BACKLIGHT_POWER_OFF;
+    write_bl_hw(0);
 #ifdef HAVE_LCD_ENABLE
     y1_logf("[backlight-unix] lcd_sleep: calling lcd_enable(false)\n");
     lcd_enable(false);

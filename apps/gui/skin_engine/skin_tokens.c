@@ -1036,13 +1036,19 @@ static const char* get_rtc_token_value(struct wps_token *token,
         case SKIN_TOKEN_RTC_AM_PM_UPPER:
             /* p: upper case AM or PM indicator */
             numeric_ret = tm->tm_hour/12 == 0 ? 0 : 1;
-            numeric_buf = numeric_ret == 0 ? "AM" : "PM";
+            if (strcasecmp(global_settings.lang_file, "korean") == 0)
+                numeric_buf = numeric_ret == 0 ? "오전" : "오후";
+            else
+                numeric_buf = numeric_ret == 0 ? "AM" : "PM";
             break;
 
         case SKIN_TOKEN_RTC_AM_PM_LOWER:
             /* P: lower case am or pm indicator */
             numeric_ret= tm->tm_hour/12 == 0 ? 0 : 1;
-            numeric_buf = numeric_ret == 0 ? "am" : "pm";
+            if (strcasecmp(global_settings.lang_file, "korean") == 0)
+                numeric_buf = numeric_ret == 0 ? "오전" : "오후";
+            else
+                numeric_buf = numeric_ret == 0 ? "am" : "pm";
             break;
 
         case SKIN_TOKEN_RTC_WEEKDAY_NAME:
@@ -1057,6 +1063,29 @@ static const char* get_rtc_token_value(struct wps_token *token,
             /* u: day of week (1..7); 1 is Monday */
             snprintf(buf, buf_size, "%1d", tm->tm_wday + 1);
             numeric_ret = (tm->tm_wday == 0) ? 7 : tm->tm_wday;
+            break;
+
+        case SKIN_TOKEN_RTC_LOCALIZED_DATE:
+            switch (global_settings.date_format)
+            {
+                case 0:
+                    snprintf(buf, buf_size, "%04d-%02d-%02d",
+                             tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+                    break;
+                case 1:
+                    snprintf(buf, buf_size, "%02d/%02d/%04d",
+                             tm->tm_mon + 1, tm->tm_mday, tm->tm_year + 1900);
+                    break;
+                case 2:
+                    snprintf(buf, buf_size, "%02d/%02d/%04d",
+                             tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
+                    break;
+                default:
+                    snprintf(buf, buf_size, "%s %d %d",
+                             str(LANG_MONTH_JANUARY + tm->tm_mon),
+                             tm->tm_mday, tm->tm_year + 1900);
+                    break;
+            }
             break;
 
         case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_SUN:
@@ -1102,6 +1131,8 @@ static const char* get_rtc_token_value(struct wps_token *token,
         case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_MON:
         case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_SUN:
             return "-";
+        case SKIN_TOKEN_RTC_LOCALIZED_DATE:
+            return "----/--/--";
     }
     return NULL;
 #endif /* CONFIG_RTC */

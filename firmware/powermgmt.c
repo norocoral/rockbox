@@ -1149,8 +1149,29 @@ void set_sleeptimer_duration(int minutes)
     set_sleep_timer(minutes * 60);
 }
 
+static bool sleeptimer_fade_active = false;
+static int sleeptimer_fade_orig_vol = 0;
+static int sleeptimer_fade_last_vol = 0;
+static int sleeptimer_fadeout_sec = 5 * 60;
+
+void set_sleeptimer_fadeout(int minutes)
+{
+    sleeptimer_fadeout_sec = (minutes > 0) ? (minutes * 60) : 0;
+}
+
+static void sleeptimer_restore_volume(void)
+{
+#ifndef BOOTLOADER
+    if (sleeptimer_fade_active) {
+        sleeptimer_fade_active = false;
+        sound_set_volume(sleeptimer_fade_orig_vol);
+    }
+#endif
+}
+
 static void set_sleep_timer(int seconds)
 {
+    sleeptimer_restore_volume();
     if (seconds) {
         sleeptimer_active  = true;
         sleeptimer_endtick = current_tick + seconds * HZ;
@@ -1184,6 +1205,7 @@ void set_keypress_restarts_sleep_timer(bool enable)
 static void handle_sleep_timer(void)
 {
     if (TIME_AFTER(current_tick, sleeptimer_endtick)) {
+        sleeptimer_restore_volume();
         if (usb_inserted()
 #if CONFIG_CHARGING
             || charger_input_state != NO_CHARGER
@@ -1197,6 +1219,26 @@ static void handle_sleep_timer(void)
         else {
             DEBUGF("Sleep timer timeout. Shutting off...\n");
             sys_poweroff();
+        }
+        return;
+    }
+
+    int fade_sec = sleeptimer_fadeout_sec;
+    if (fade_sec > 0) {
+        int rem = get_sleep_timer();
+        if (rem > 0 && rem <= fade_sec) {
+            if (!sleeptimer_fade_active) {
+                sleeptimer_fade_active = true;
+                sleeptimer_fade_orig_vol = sound_current(SOUND_VOLUME);
+                sleeptimer_fade_last_vol = sleeptimer_fade_orig_vol;
+            }
+            int min_vol = sound_min(SOUND_VOLUME);
+            int target_vol = min_vol +
+                ((sleeptimer_fade_orig_vol - min_vol) * rem) / fade_sec;
+            if (target_vol != sleeptimer_fade_last_vol) {
+                sleeptimer_fade_last_vol = target_vol;
+                sound_set_volume(target_vol);
+            }
         }
     }
 }

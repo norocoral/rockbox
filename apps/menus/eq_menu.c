@@ -87,6 +87,10 @@ static void eq_apply(void)
     for(int i = 0; i < EQ_NUM_BANDS; i++) {
         dsp_set_eq_coefs(i, &global_settings.eq_band_settings[i]);
     }
+#ifdef INNIOASIS_Y1
+    extern void y1_output_profile_save_current(void);
+    y1_output_profile_save_current();
+#endif
 }
 
 static int eq_setting_callback(int action,

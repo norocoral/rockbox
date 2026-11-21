@@ -160,17 +160,37 @@ static void draw_timedate(struct viewport *vp, struct screen *display)
 
     if (valid_time(tm))
     {
+        bool is_korean = (strcasecmp(global_settings.lang_file, "korean") == 0);
+        const char *ampm = "";
+        if (global_settings.timeformat != 0)
+            ampm = is_korean ? (tm->tm_hour > 11 ? " 오후" : " 오전")
+                             : (tm->tm_hour > 11 ? " P" : " A");
         snprintf(time, sizeof(time), "%02d:%02d:%02d%s", 
                 global_settings.timeformat == 0 ? tm->tm_hour :
                         ((tm->tm_hour + 11) % 12) + 1,
                             tm->tm_min, 
                             tm->tm_sec, 
-                        global_settings.timeformat == 0 ? "" :
-                                tm->tm_hour>11 ? " P" : " A");
-        snprintf(date, sizeof(date), "%s %d %d", 
-                str(LANG_MONTH_JANUARY + tm->tm_mon),
-                    tm->tm_mday,
-                    tm->tm_year+1900);
+                        ampm);
+        switch (global_settings.date_format)
+        {
+            case 0:
+                snprintf(date, sizeof(date), "%04d-%02d-%02d",
+                         tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+                break;
+            case 1:
+                snprintf(date, sizeof(date), "%02d/%02d/%04d",
+                         tm->tm_mon + 1, tm->tm_mday, tm->tm_year + 1900);
+                break;
+            case 2:
+                snprintf(date, sizeof(date), "%02d/%02d/%04d",
+                         tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
+                break;
+            default:
+                snprintf(date, sizeof(date), "%s %d %d",
+                         str(LANG_MONTH_JANUARY + tm->tm_mon),
+                         tm->tm_mday, tm->tm_year + 1900);
+                break;
+        }
     }
     else
     {
@@ -227,6 +247,7 @@ static int time_menu_callback(int action,
 #if defined(HAVE_RDS_CAP) && defined(CONFIG_RTC)
 MENUITEM_SETTING(sync_rds_time, &global_settings.sync_rds_time, NULL);
 #endif
+MENUITEM_SETTING(date_format, &global_settings.date_format, NULL);
 
 MAKE_MENU(time_menu, ID2P(LANG_TIME_MENU), time_menu_callback, Icon_NOICON,
           &time_set,
@@ -239,7 +260,7 @@ MAKE_MENU(time_menu, ID2P(LANG_TIME_MENU), time_menu_callback, Icon_NOICON,
 #if defined(HAVE_RDS_CAP) && defined(CONFIG_RTC)
           &sync_rds_time,
 #endif
-          &timeformat);
+          &timeformat, &date_format);
 
 int time_screen(void* ignored)
 {

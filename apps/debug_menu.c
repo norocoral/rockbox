@@ -941,6 +941,7 @@ static bool view_battery(void)
     int view = 0;
     int i, x, y, z, y1, y2, grid, graph;
     unsigned short maxv, minv;
+    lcd_set_viewport(NULL);
     lcd_setfont(FONT_SYSFIXED);
 
     while(1)
@@ -1034,10 +1035,52 @@ static bool view_battery(void)
                 lcd_putsf(0, 0, "Pwr status: %s", "unknown");
 #endif
                 battery_read_info(&y, &z);
+#if defined(INNIOASIS_Y1)
+                {
+                    extern int y1_battery_percent(void);
+                    extern int y1_battery_voltage_mv(void);
+                    extern int y1_battery_current_ma(void);
+                    int pct = y1_battery_percent();
+                    int mv = y1_battery_voltage_mv();
+                    int ma = y1_battery_current_ma();
+                    long mw = ((long)mv * (long)ma) / 1000L;
+                    int line = 1;
+                    lcd_putsf(0, line++, "Bat: %d%% | %d.%03d V | %d mA (%ld mW)",
+                              pct, mv / 1000, mv % 1000, ma, mw);
+                    int nstates = cpustatetimes_linux(0, states, ARRAYLEN(states));
+                    long total_t = 0, low_t = 0, high_t = 0;
+                    for (int s = 0; s < nstates; s++)
+                    {
+                        total_t += states[s].time;
+                        if (states[s].frequency <= 400000)
+                            low_t += states[s].time;
+                        else
+                            high_t += states[s].time;
+                    }
+                    if (total_t > 0)
+                    {
+                        int low_pct = (int)((low_t * 100) / total_t);
+                        lcd_putsf(0, line++, "CPU 390MHz: %d%% | >390MHz: %d%%",
+                                  low_pct, 100 - low_pct);
+                    }
+                    FILE *uf = fopen("/proc/uptime", "r");
+                    if (uf)
+                    {
+                        double up_s = 0, idle_s = 0;
+                        if (fscanf(uf, "%lf %lf", &up_s, &idle_s) == 2 && up_s > 0.1)
+                        {
+                            int sleep_pct = (int)((idle_s * 50.0) / up_s);
+                            if (sleep_pct > 100) sleep_pct = 100;
+                            lcd_putsf(0, line++, "Idle/Sleep residency: %d%%", sleep_pct);
+                        }
+                        fclose(uf);
+                    }
+                }
+#endif
                 if (y > 0)
-                    lcd_putsf(0, 1, "%s: %d.%03d V (%d %%)", "Battery", y / 1000, y % 1000, z);
+                    lcd_putsf(0, 6, "%s: %d.%03d V (%d %%)", "Battery", y / 1000, y % 1000, z);
                 else if (z > 0)
-                    lcd_putsf(0, 1, "%s: %d %%", "Battery", z);
+                    lcd_putsf(0, 6, "%s: %d %%", "Battery", z);
 #ifdef ADC_EXT_POWER
                 y = (adc_read(ADC_EXT_POWER) * EXT_SCALE_FACTOR) / 1000;
                 lcd_putsf(0, 2, "%s: %d.%03d V", "External", y / 1000, y % 1000);

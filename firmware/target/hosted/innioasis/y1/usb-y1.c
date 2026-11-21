@@ -33,8 +33,6 @@ static bool y1_charge_only = false;
 static volatile bool g_ipod_converting = false;
 static volatile bool g_tc_reload_needed = false;
 static bool g_attached_since_post_sync = false;
-static uint64_t g_pre_usb_sys_hash = 0;
-static bool g_pre_usb_sys_valid = false;
 static char g_convert_stage[96] = {0};
 static int g_convert_done = 0;
 static int g_convert_total = 0;
@@ -86,58 +84,6 @@ static bool y1_is_serial_terminal_session(void)
     return false;
 }
 
-static uint64_t fnv1a_update(uint64_t h, const void *data, size_t len)
-{
-    const uint8_t *p = (const uint8_t *)data;
-    for (size_t i = 0; i < len; i++) {
-        h ^= p[i];
-        h *= 1099511628211ULL;
-    }
-    return h;
-}
-
-static uint64_t hash_dir_tree(const char *path, uint64_t h)
-{
-    DIR *d = opendir(path);
-    if (!d)
-        return h;
-
-    struct dirent *ent;
-    char child[512];
-    while ((ent = readdir(d)) != NULL) {
-        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-            continue;
-        if (strcmp(ent->d_name, "y1_debug.txt") == 0)
-            continue;
-
-        snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
-        struct stat st;
-        if (lstat(child, &st) != 0)
-            continue;
-
-        h = fnv1a_update(h, child, strlen(child) + 1);
-        uint64_t meta[3] = {
-            (uint64_t)st.st_mode,
-            (uint64_t)st.st_size,
-            (uint64_t)st.st_mtime
-        };
-        h = fnv1a_update(h, meta, sizeof(meta));
-
-        if (S_ISDIR(st.st_mode))
-            h = hash_dir_tree(child, h);
-    }
-    closedir(d);
-    return h;
-}
-
-static uint64_t compute_sys_tree_hash(void)
-{
-    uint64_t h = 14695981039346656037ULL;
-    h = hash_dir_tree("/mnt/sdcard/.rockbox", h);
-    h = hash_dir_tree("/mnt/sdcard/.system", h);
-    return h;
-}
-
 static void attach_with_pre_sync(void)
 {
     if (y1_is_serial_terminal_session())
@@ -150,9 +96,6 @@ static void attach_with_pre_sync(void)
         y1_ipod_ensure_device_files();
         y1_ipod_native_invalidate();
     }
-
-    g_pre_usb_sys_hash = compute_sys_tree_hash();
-    g_pre_usb_sys_valid = true;
 
     if (y1_usb_attach_mass_storage())
         g_attached_since_post_sync = true;
@@ -221,15 +164,6 @@ static void sync_time_from_usb_sdcard(void)
 static void run_post_disconnect_once(void)
 {
     sync_time_from_usb_sdcard();
-
-    if (g_pre_usb_sys_valid) {
-        g_pre_usb_sys_valid = false;
-        uint64_t post_hash = compute_sys_tree_hash();
-        if (post_hash != g_pre_usb_sys_hash) {
-            sync();
-            y1_sys_reboot();
-        }
-    }
 
     if (!g_attached_since_post_sync)
         return;

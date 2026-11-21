@@ -422,6 +422,7 @@ struct user_settings
     bool dithering_enabled;
 #ifdef HAVE_PITCHCONTROL
     bool timestretch_enabled;
+    int timestretch_algorithm;
 #endif
 
 #ifdef HAVE_RECORDING
@@ -542,6 +543,7 @@ struct user_settings
 #endif
 
     int timeformat;    /* time format: 0=24 hour clock, 1=12 hour clock */
+    int date_format;   /* 0=YYYY-MM-DD, 1=MM/DD/YYYY, 2=DD/MM/YYYY, 3=Mon DD YYYY */
 
 #ifdef HAVE_DISK_STORAGE
     int disk_spindown; /* time until disk spindown, in seconds (0=off) */
@@ -597,6 +599,7 @@ struct user_settings
 
     int scrollbar;    /* SCROLLBAR_* enum values */
     int scrollbar_width;
+    bool scrollbar_track_only;
 
 #ifdef HAVE_TOUCHSCREEN
     int list_line_padding;
@@ -652,6 +655,9 @@ struct user_settings
     int lst_color; /* color of the text for the selector */
 #if defined(INNIOASIS_Y1) && LCD_DEPTH == 16
     bool navigation_fade;
+    bool y1_aa_image;
+    bool y1_aa_text;
+    bool y1_transparency_plus;
 #endif
     unsigned char colors_file[MAX_FILENAME+1];
 #endif
@@ -865,6 +871,7 @@ struct user_settings
     struct compressor_settings compressor_settings;
 
     int sleeptimer_duration; /* In minutes; 0=off */
+    int sleeptimer_fadeout;  /* In minutes; 0=off */
     bool sleeptimer_on_startup;
     bool keypress_restarts_sleeptimer;
 
@@ -960,6 +967,9 @@ struct user_settings
     bool scroll_abc;
     bool keyclick_wheel_only;
     bool keyclick_list_edge;
+    bool keyclick_vibrate;
+    int  keyclick_vibrate_ms;
+    bool keyclick_vibrate_repeat;
     char keyclick_custom_sound[MAX_PATH];
     int mfb_single_click;
     int mfb_double_click;
@@ -971,6 +981,10 @@ struct user_settings
     bool bt_receiver_auto_connect;
     bool bt_receiver_full_volume;
     bool bt_connected_device_full_volume;
+    bool output_profiles_enabled;
+    bool output_profile_auto_remember;
+    int  wired_volume_limit;
+    int  bt_volume_limit;
     bool y1_modern_scheme;
     char y1_video_dir[MAX_PATHNAME+1];
     int  y1_video_resume;

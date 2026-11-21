@@ -249,6 +249,70 @@ void ICODE_ATTR lcd_mono_bitmap_part(const unsigned char *src, int src_x,
     int fg = vp->fg_pattern;
     int bg = vp->bg_pattern;
 
+#ifdef INNIOASIS_Y1
+    if (y1_render_aa_text && (drmode & (DRMODE_FG | DRMODE_SOLID)) && width >= 2 && height >= 2)
+    {
+        const unsigned char *row_src = src;
+        unsigned int row_bit = (unsigned int)src_y;
+        fb_data *row_dst = dst;
+        for (int r = 0; r < height; r++)
+        {
+            for (int c = 0; c < width; c++)
+            {
+                bool cur = ((row_src[c] ^ dmask) >> row_bit) & 1;
+                if (cur)
+                {
+                    row_dst[c * COL_INC] = fg;
+                    continue;
+                }
+                bool up = false, dn = false, lt = false, rt = false;
+                if (r > 0)
+                {
+                    const unsigned char *up_src = (row_bit == 0) ? (row_src - stride) : row_src;
+                    unsigned int up_bit = (row_bit == 0) ? 7 : (row_bit - 1);
+                    up = ((up_src[c] ^ dmask) >> up_bit) & 1;
+                }
+                if (r + 1 < height)
+                {
+                    const unsigned char *dn_src = (row_bit == 7) ? (row_src + stride) : row_src;
+                    unsigned int dn_bit = (row_bit == 7) ? 0 : (row_bit + 1);
+                    dn = ((dn_src[c] ^ dmask) >> dn_bit) & 1;
+                }
+                if (c > 0)
+                    lt = ((row_src[c - 1] ^ dmask) >> row_bit) & 1;
+                if (c + 1 < width)
+                    rt = ((row_src[c + 1] ^ dmask) >> row_bit) & 1;
+
+                bool aa_corner = (up && lt) || (up && rt) || (dn && lt) || (dn && rt);
+                if (aa_corner)
+                {
+                    fb_data bg_px;
+                    if (drmode & DRMODE_INT_BD)
+                        bg_px = *PTR_ADD(&row_dst[c * COL_INC], lcd_backdrop_offset);
+                    else if (drmode & DRMODE_BG)
+                        bg_px = bg;
+                    else
+                        bg_px = row_dst[c * COL_INC];
+                    row_dst[c * COL_INC] = y1_rgb565_blend(bg_px, fg, 12);
+                }
+                else if (drmode & DRMODE_INT_BD)
+                {
+                    row_dst[c * COL_INC] = *PTR_ADD(&row_dst[c * COL_INC], lcd_backdrop_offset);
+                }
+                else if (drmode & DRMODE_BG)
+                {
+                    row_dst[c * COL_INC] = bg;
+                }
+            }
+            row_bit = (row_bit + 1) & 7;
+            if (row_bit == 0)
+                row_src += stride;
+            row_dst += ROW_INC;
+        }
+        return;
+    }
+#endif
+
     while(height > 0)
     {
         const unsigned char* src_col = src;
@@ -433,6 +497,12 @@ static inline unsigned blend_two_colors(unsigned c1, unsigned c2, unsigned a)
 #endif
 }
 
+#ifdef INNIOASIS_Y1
+#define IS_ENABLED_Y1_NO_AA_TEXT() (image == NULL && !y1_render_aa_text)
+#else
+#define IS_ENABLED_Y1_NO_AA_TEXT() 0
+#endif
+
 static void ICODE_ATTR lcd_alpha_bitmap_part_mix(
     const fb_data* image, const unsigned char *alpha,
     int src_x, int src_y,
@@ -531,6 +601,8 @@ static void ICODE_ATTR lcd_alpha_bitmap_part_mix(
         unsigned char __ret = alpha_data & ALPHA_MASK; \
         alpha_data >>= ALPHA_BPP; \
         alpha_pixels ^= 1; \
+        if (IS_ENABLED_Y1_NO_AA_TEXT()) \
+            __ret = (__ret < 8) ? 0 : 15; \
         __ret; \
     })
 #else

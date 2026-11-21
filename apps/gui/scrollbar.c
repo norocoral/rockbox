@@ -22,6 +22,97 @@
 #include "config.h"
 #include "limits.h"
 #include "bmp.h"
+#ifndef BOOTLOADER
+#include "settings.h"
+#endif
+
+static int pill_row_inset(int dy, int d)
+{
+    int D = d - 1;
+    int r2 = D * D;
+    int y2 = 2 * dy - D;
+    y2 *= y2;
+    int inset = 0;
+    while (inset < d / 2)
+    {
+        int x2 = 2 * inset - D;
+        if (x2 * x2 + y2 <= r2)
+            break;
+        inset++;
+    }
+    return inset;
+}
+
+static void scrollbar_fill_pill(struct screen *screen, int x, int y,
+                                int width, int height)
+{
+    if (width <= 0 || height <= 0)
+        return;
+
+    int d = (width < height) ? width : height;
+    int r = d / 2;
+    if (d < 4 || r <= 0)
+    {
+        screen->fillrect(x, y, width, height);
+        return;
+    }
+
+    for (int dy = 0; dy < r; dy++)
+    {
+        int inset = pill_row_inset(dy, d);
+        int x1 = x + inset;
+        int x2 = x + width - 1 - inset;
+        if (x1 <= x2)
+        {
+            screen->hline(x1, x2, y + dy);
+            screen->hline(x1, x2, y + height - 1 - dy);
+        }
+    }
+
+    if (height > 2 * r)
+        screen->fillrect(x, y + r, width, height - 2 * r);
+}
+
+static void scrollbar_draw_pill_border(struct screen *screen, int x, int y,
+                                       int width, int height)
+{
+    if (width <= 0 || height <= 0)
+        return;
+
+    int d = (width < height) ? width : height;
+    int r = d / 2;
+    if (d < 4 || r <= 0)
+    {
+        screen->drawrect(x, y, width, height);
+        return;
+    }
+
+    int prev_inset = pill_row_inset(0, d);
+    int top_x1 = x + prev_inset;
+    int top_x2 = x + width - 1 - prev_inset;
+    if (top_x1 <= top_x2)
+    {
+        screen->hline(top_x1, top_x2, y);
+        screen->hline(top_x1, top_x2, y + height - 1);
+    }
+
+    for (int dy = 1; dy < r; dy++)
+    {
+        int inset = pill_row_inset(dy, d);
+        int span = (prev_inset > inset) ? (prev_inset - 1) : inset;
+        screen->hline(x + inset, x + span, y + dy);
+        screen->hline(x + width - 1 - span, x + width - 1 - inset, y + dy);
+        screen->hline(x + inset, x + span, y + height - 1 - dy);
+        screen->hline(x + width - 1 - span, x + width - 1 - inset, y + height - 1 - dy);
+        prev_inset = inset;
+    }
+
+    if (height > 2 * r)
+    {
+        screen->vline(x, y + r, y + height - 1 - r);
+        screen->vline(x + width - 1, y + r, y + height - 1 - r);
+    }
+}
 
 /* calculates the start and size of the knob */
 static void scrollbar_helper(int min_shown, int max_shown, int items,
@@ -92,7 +183,13 @@ void gui_scrollbar_draw(struct screen * screen, int x, int y,
         max_shown = items;
     }
 
-    if (flags & BORDER_NOFILL)
+    bool track_only = false;
+#ifndef BOOTLOADER
+    track_only = global_settings.scrollbar_track_only;
+#endif
+    bool draw_border = !(flags & BORDER_NOFILL) && !track_only;
+
+    if (!draw_border)
     {
         inner_x  = x;
         inner_y  = y;
@@ -119,19 +216,7 @@ void gui_scrollbar_draw(struct screen * screen, int x, int y,
 
     scrollbar_helper(min_shown, max_shown, items, inner_len, &size, &start);
 
-    /* draw box */
-    if (!(flags & BORDER_NOFILL))
-    {
-#ifdef HAVE_LCD_COLOR
-        /* must avoid corners if case of (flags & FOREGROUND) */
-        screen->hline(inner_x, x + inner_wd, y);
-        screen->hline(inner_x, x + inner_wd, y + height - 1);
-        screen->vline(x, inner_y, y + inner_ht);
-        screen->vline(x + width - 1, inner_y, y + inner_ht);
-#else
-        screen->drawrect(x, y, width, height);
-#endif
-    }
+    /* clear bounding rect before drawing pill track/thumb */
     screen->set_drawmode(DRMODE_SOLID | DRMODE_INVERSEVID);
 
 #ifdef HAVE_LCD_COLOR
@@ -140,36 +225,33 @@ void gui_scrollbar_draw(struct screen * screen, int x, int y,
     if (!(flags & FOREGROUND))
     {
 #endif
-        /* clear corner pixels */
-        screen->drawpixel(x, y);
-        screen->drawpixel(x + width - 1, y);
-        screen->drawpixel(x, y + height - 1);
-        screen->drawpixel(x + width - 1, y + height - 1);
-
+        screen->fillrect(x, y, width, height);
 #ifdef HAVE_LCD_COLOR
         if (infill != INNER_BGFILL)
             infill = INNER_FILL;
     }
-
-    if (infill == INNER_FILL)
-#endif
+    else if (infill == INNER_FILL && !track_only)
     {
-        /* clear pixels in progress bar */
-        screen->fillrect(inner_x, inner_y, inner_wd, inner_ht);
+        scrollbar_fill_pill(screen, inner_x, inner_y, inner_wd, inner_ht);
     }
+#endif
 
     screen->set_drawmode(DRMODE_SOLID);
+
+    /* draw pill track outline unless track-only or BORDER_NOFILL */
+    if (draw_border)
+        scrollbar_draw_pill_border(screen, x, y, width, height);
 
     if (flags & INNER_NOFILL)
         return;
 
 #ifdef HAVE_LCD_COLOR
-    if (infill == INNER_BGFILL)
+    if (infill == INNER_BGFILL && !track_only)
     {
         /* fill inner area with current background color */
         unsigned fg = screen->get_foreground();
         screen->set_foreground(screen->get_background());
-        screen->fillrect(inner_x, inner_y, inner_wd, inner_ht);
+        scrollbar_fill_pill(screen, inner_x, inner_y, inner_wd, inner_ht);
         screen->set_foreground(fg);
     }
 #endif
@@ -185,7 +267,7 @@ void gui_scrollbar_draw(struct screen * screen, int x, int y,
         inner_ht = size;
     }
 
-    screen->fillrect(inner_x, inner_y, inner_wd, inner_ht);
+    scrollbar_fill_pill(screen, inner_x, inner_y, inner_wd, inner_ht);
 }
 
 void gui_bitmap_scrollbar_draw(struct screen * screen, struct bitmap *bm, int x, int y,

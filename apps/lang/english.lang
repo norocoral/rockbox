@@ -3607,6 +3607,76 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_DATE_FORMAT
+  desc: select the date format
+  user: core
+  <source>
+    *: "Date Format"
+  </source>
+  <dest>
+    *: "Date Format"
+  </dest>
+  <voice>
+    *: "Date Format"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_DATE_FORMAT_YMD
+  desc: date format YYYY-MM-DD
+  user: core
+  <source>
+    *: "YYYY-MM-DD"
+  </source>
+  <dest>
+    *: "YYYY-MM-DD"
+  </dest>
+  <voice>
+    *: "Year Month Day"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_DATE_FORMAT_MDY
+  desc: date format MM/DD/YYYY
+  user: core
+  <source>
+    *: "MM/DD/YYYY"
+  </source>
+  <dest>
+    *: "MM/DD/YYYY"
+  </dest>
+  <voice>
+    *: "Month Day Year"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_DATE_FORMAT_DMY
+  desc: date format DD/MM/YYYY
+  user: core
+  <source>
+    *: "DD/MM/YYYY"
+  </source>
+  <dest>
+    *: "DD/MM/YYYY"
+  </dest>
+  <voice>
+    *: "Day Month Year"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_DATE_FORMAT_TEXT
+  desc: date format Month Day Year
+  user: core
+  <source>
+    *: "Month Day Year"
+  </source>
+  <dest>
+    *: "Month Day Year"
+  </dest>
+  <voice>
+    *: "Month Day Year"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_12_HOUR_CLOCK
   desc: option for 12 hour clock
   user: core
@@ -9383,6 +9453,62 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_Y1_VIBRATIONS
+  desc: in keyclick settings menu
+  user: core
+  <source>
+    *: "Vibrations"
+  </source>
+  <dest>
+    *: "Vibrations"
+  </dest>
+  <voice>
+    *: "Vibrations"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIBRATE_ENABLED
+  desc: in vibrations settings menu
+  user: core
+  <source>
+    *: "Vibration"
+  </source>
+  <dest>
+    *: "Vibration"
+  </dest>
+  <voice>
+    *: "Vibration"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIBRATE_MS
+  desc: in vibrations settings menu
+  user: core
+  <source>
+    *: "Vibration Duration"
+  </source>
+  <dest>
+    *: "Vibration Duration"
+  </dest>
+  <voice>
+    *: "Vibration Duration"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_VIBRATE_REPEAT
+  desc: in vibrations settings menu
+  user: core
+  <source>
+    *: "Vibration Repeat"
+  </source>
+  <dest>
+    *: "Vibration Repeat"
+  </dest>
+  <voice>
+    *: "Vibration Repeat"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_ACCESSORY_SUPPLY
   desc: in system settings menu
   user: core
@@ -10139,6 +10265,48 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_TIMESTRETCH_ALGO
+  desc: in timestretch settings
+  user: core
+  <source>
+    *: "Algorithm"
+  </source>
+  <dest>
+    *: "Algorithm"
+  </dest>
+  <voice>
+    *: "Algorithm"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_TIMESTRETCH_WSOLA
+  desc: in timestretch algorithm settings
+  user: core
+  <source>
+    *: "WSOLA"
+  </source>
+  <dest>
+    *: "WSOLA"
+  </dest>
+  <voice>
+    *: "WSOLA"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_TIMESTRETCH_TDHS
+  desc: in timestretch algorithm settings
+  user: core
+  <source>
+    *: "TDHS"
+  </source>
+  <dest>
+    *: "TDHS"
+  </dest>
+  <voice>
+    *: "TDHS"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_SPEED
   desc: timestretch speed
   user: core
@@ -10464,6 +10632,20 @@
   </dest>
   <voice>
     *: "Scroll bar width"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_SCROLLBAR_TRACK_ONLY
+  desc: in Settings -> General -> Display -> Status-/Scrollbar
+  user: core
+  <source>
+    *: "Scrollbar Track Only"
+  </source>
+  <dest>
+    *: "Scrollbar Track Only"
+  </dest>
+  <voice>
+    *: "Scrollbar track only"
   </voice>
 </phrase>
 <phrase>
@@ -11568,6 +11750,20 @@
   </dest>
   <voice>
     *: "Default Sleep Timer Duration"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_SLEEP_TIMER_FADEOUT
+  desc: sleep timer volume fade-out duration
+  user: core
+  <source>
+    *: "Sleep Timer Fade-Out"
+  </source>
+  <dest>
+    *: "Sleep Timer Fade-Out"
+  </dest>
+  <voice>
+    *: "Sleep Timer Fade-Out"
   </voice>
 </phrase>
 <phrase>
@@ -17779,6 +17975,62 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_Y1_OUTPUT_PROFILES
+  desc: in Sound Settings
+  user: core
+  <source>
+    *: "Output Profiles"
+  </source>
+  <dest>
+    *: "Output Profiles"
+  </dest>
+  <voice>
+    *: "Output Profiles"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_AUTO_REMEMBER
+  desc: in Output Profiles menu
+  user: core
+  <source>
+    *: "Auto-Remember"
+  </source>
+  <dest>
+    *: "Auto-Remember"
+  </dest>
+  <voice>
+    *: "Auto-Remember"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_WIRED_VOL_LIMIT
+  desc: in Output Profiles menu
+  user: core
+  <source>
+    *: "Wired Volume Limit"
+  </source>
+  <dest>
+    *: "Wired Volume Limit"
+  </dest>
+  <voice>
+    *: "Wired Volume Limit"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_BT_VOL_LIMIT
+  desc: in Output Profiles menu
+  user: core
+  <source>
+    *: "Bluetooth Volume Limit"
+  </source>
+  <dest>
+    *: "Bluetooth Volume Limit"
+  </dest>
+  <voice>
+    *: "Bluetooth Volume Limit"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_Y1_KEYCLICK_WHEEL_ONLY
   desc: in keyclick settings menu
   user: core
@@ -18924,10 +19176,10 @@
   desc: in CPU mode settings
   user: core
   <source>
-    *: "Power Saver (598MHz Underclock)"
+    *: "Power Saver (390MHz Underclock)"
   </source>
   <dest>
-    *: "Power Saver (598MHz Underclock)"
+    *: "Power Saver (390MHz Underclock)"
   </dest>
   <voice>
     *: "Power Saver"
@@ -19057,5 +19309,61 @@
   </dest>
   <voice>
     *: "File Playlists"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_RENDERING_MENU
+  desc: Rendering submenu in Theme Settings
+  user: core
+  <source>
+    *: "Rendering"
+  </source>
+  <dest>
+    *: "Rendering"
+  </dest>
+  <voice>
+    *: "Rendering"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_AA_IMAGE
+  desc: Antialiasing Image setting in Rendering menu
+  user: core
+  <source>
+    *: "Antialiasing Image"
+  </source>
+  <dest>
+    *: "Antialiasing Image"
+  </dest>
+  <voice>
+    *: "Antialiasing Image"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_AA_TEXT
+  desc: Antialiasing Text setting in Rendering menu
+  user: core
+  <source>
+    *: "Antialiasing Text"
+  </source>
+  <dest>
+    *: "Antialiasing Text"
+  </dest>
+  <voice>
+    *: "Antialiasing Text"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_TRANSPARENCY_PLUS
+  desc: Transparency Plus setting in Rendering menu
+  user: core
+  <source>
+    *: "Transparency Plus"
+  </source>
+  <dest>
+    *: "Transparency Plus"
+  </dest>
+  <voice>
+    *: "Transparency Plus"
   </voice>
 </phrase>

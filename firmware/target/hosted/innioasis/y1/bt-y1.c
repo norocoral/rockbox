@@ -41,6 +41,8 @@
 #include "bt-y1.h"
 #include "pcm-eac.h"
 #include "sbc/sbc.h"
+#include "vo-aacenc/voAAC.h"
+#include "vo-aacenc/cmnMemory.h"
 
 #define PAIRED_DB_PATH        "/mnt/sdcard/.system/bt_paired.dat"
 #define LEGACY_PAIRED_DB_PATH "/mnt/sdcard/.rockbox/bt_paired.dat"
@@ -236,6 +238,29 @@ static uint8_t sbc_bitpool    = 53;
 static uint8_t sbc_remote_min_bitpool = 2;
 static uint8_t sbc_remote_max_bitpool = 53;
 static bool    sbc_is_xq      = false;
+static uint8_t a2dp_active_codec = Y1_BT_CODEC_SBC;
+static uint8_t best_sbc_seid  = 0;
+static uint8_t best_sbc_o0    = 0;
+static uint8_t best_sbc_o1    = 0;
+static uint8_t best_sbc_min_bp = 2;
+static uint8_t best_sbc_max_bp = 53;
+static uint8_t best_aac_seid  = 0;
+static uint8_t aac_remote_caps[6];
+static uint8_t aac_cfg_caps[6];
+static unsigned long aac_sample_rate_hz = 44100;
+static uint8_t aac_channels   = 2;
+static uint32_t aac_bitrate   = 256000;
+static bool    avdtp_endpoint_configured = false;
+static uint32_t avdtp_cap_query_ms = 0;
+
+static int sanitize_bt_codec(int codec)
+{
+    if (codec == Y1_BT_CODEC_AAC)
+        return Y1_BT_CODEC_AAC;
+    if (codec == Y1_BT_CODEC_SBC_XQ)
+        return Y1_BT_CODEC_SBC_XQ;
+    return Y1_BT_CODEC_SBC;
+}
 
 /* Remote Name Resolution queue after Inquiry */
 static bool resolving_names = false;
@@ -256,6 +281,20 @@ static void format_bdaddr(const uint8_t bd[6], char *out, size_t out_sz)
 /* ============================================================================
  * Persistent Paired Device Database (/mnt/sdcard/.rockbox/bt_paired.dat)
  * ============================================================================ */
+#define PAIRED_MAGIC_V4 0x59314254 /* "Y1BT" */
+#define Y1_BT_VOL_UNSET (-1000)
+
+struct paired_db_entry_v4 {
+    uint8_t bdaddr[6];
+    char    name[64];
+    uint8_t link_key[16];
+    uint8_t key_type;
+    char    pin[16];
+    int32_t volume;
+    int32_t receiver_volume;
+    uint8_t codec;
+};
+
 struct paired_db_entry {
     uint8_t bdaddr[6];
     char    name[64];
@@ -277,7 +316,28 @@ static void load_paired_devices(void)
     uint32_t magic = 0, count = 0;
     if (read(fd, &magic, 4) == 4 && read(fd, &count, 4) == 4)
     {
-        if (magic == PAIRED_MAGIC_V3)
+        if (magic == PAIRED_MAGIC_V4)
+        {
+            for (uint32_t i = 0; i < count && bt_num_devices < Y1_BT_MAX_DEVICES; i++)
+            {
+                struct paired_db_entry_v4 e;
+                if (read(fd, &e, sizeof(e)) != sizeof(e))
+                    break;
+                struct y1_bt_device *d = &bt_devices[bt_num_devices++];
+                memset(d, 0, sizeof(*d));
+                memcpy(d->bdaddr, e.bdaddr, 6);
+                strncpy(d->name, e.name, sizeof(d->name) - 1);
+                memcpy(d->link_key, e.link_key, 16);
+                d->key_type = e.key_type;
+                strncpy(d->pin, e.pin, sizeof(d->pin) - 1);
+                d->volume = e.volume;
+                d->receiver_volume = e.receiver_volume;
+                d->codec = (uint8_t)sanitize_bt_codec(e.codec);
+                d->paired = true;
+                d->rssi = -60;
+            }
+        }
+        else if (magic == PAIRED_MAGIC_V3)
         {
             for (uint32_t i = 0; i < count && bt_num_devices < Y1_BT_MAX_DEVICES; i++)
             {
@@ -291,9 +351,9 @@ static void load_paired_devices(void)
                 memcpy(d->link_key, e.link_key, 16);
                 d->key_type = e.key_type;
                 strncpy(d->pin, e.pin, sizeof(d->pin) - 1);
-                d->volume = e.volume;
-                d->codec = (e.codec == Y1_BT_CODEC_SBC_XQ) ?
-                           Y1_BT_CODEC_SBC_XQ : Y1_BT_CODEC_SBC;
+                d->volume = (e.volume == 0) ? Y1_BT_VOL_UNSET : e.volume;
+                d->receiver_volume = Y1_BT_VOL_UNSET;
+                d->codec = (uint8_t)sanitize_bt_codec(e.codec);
                 d->paired = true;
                 d->rssi = -60;
             }
@@ -362,7 +422,7 @@ static void save_paired_devices(void)
     if (fd < 0)
         return;
 
-    uint32_t magic = PAIRED_MAGIC_V3;
+    uint32_t magic = PAIRED_MAGIC_V4;
     uint32_t count = 0;
     for (int i = 0; i < bt_num_devices; i++) {
         if (bt_devices[i].paired)
@@ -372,7 +432,7 @@ static void save_paired_devices(void)
     (void)!write(fd, &count, 4);
     for (int i = 0; i < bt_num_devices; i++) {
         if (bt_devices[i].paired) {
-            struct paired_db_entry e;
+            struct paired_db_entry_v4 e;
             memset(&e, 0, sizeof(e));
             memcpy(e.bdaddr, bt_devices[i].bdaddr, 6);
             strncpy(e.name, bt_devices[i].name, sizeof(e.name) - 1);
@@ -380,6 +440,7 @@ static void save_paired_devices(void)
             e.key_type = bt_devices[i].key_type;
             strncpy(e.pin, bt_devices[i].pin, sizeof(e.pin) - 1);
             e.volume = bt_devices[i].volume;
+            e.receiver_volume = bt_devices[i].receiver_volume;
             e.codec = bt_devices[i].codec;
             (void)!write(fd, &e, sizeof(e));
         }
@@ -491,6 +552,20 @@ static void reset_bt_session(void)
     sbc_remote_min_bitpool = 2;
     sbc_remote_max_bitpool = 53;
     sbc_is_xq = false;
+    a2dp_active_codec = Y1_BT_CODEC_SBC;
+    best_sbc_seid = 0;
+    best_sbc_o0 = 0;
+    best_sbc_o1 = 0;
+    best_sbc_min_bp = 2;
+    best_sbc_max_bp = 53;
+    best_aac_seid = 0;
+    memset(aac_remote_caps, 0, sizeof(aac_remote_caps));
+    memset(aac_cfg_caps, 0, sizeof(aac_cfg_caps));
+    aac_sample_rate_hz = 44100;
+    aac_channels = 2;
+    aac_bitrate = 256000;
+    avdtp_endpoint_configured = false;
+    avdtp_cap_query_ms = 0;
     a2dp_streaming = false;
     in_sniff_mode = false;
     avrcp_play_notify_pending = false;
@@ -527,6 +602,10 @@ static void reset_bt_session(void)
 
 static sbc_t a2dp_sbc;
 static bool  a2dp_sbc_ready = false;
+static VO_AUDIO_CODECAPI a2dp_aac_api;
+static VO_HANDLE a2dp_aac_handle = NULL;
+static VO_MEM_OPERATOR a2dp_aac_mem;
+static bool  a2dp_aac_ready = false;
 
 static void reinit_a2dp_sbc(void)
 {
@@ -542,8 +621,62 @@ static void reinit_a2dp_sbc(void)
     }
 }
 
+static void uninit_a2dp_aac(void)
+{
+    if (a2dp_aac_ready && a2dp_aac_handle) {
+        a2dp_aac_api.Uninit(a2dp_aac_handle);
+        a2dp_aac_handle = NULL;
+    }
+    a2dp_aac_ready = false;
+}
+
+static void reinit_a2dp_aac(void)
+{
+    uninit_a2dp_aac();
+    memset(&a2dp_aac_api, 0, sizeof(a2dp_aac_api));
+    memset(&a2dp_aac_mem, 0, sizeof(a2dp_aac_mem));
+    voGetAACEncAPI(&a2dp_aac_api);
+    a2dp_aac_mem.Alloc = cmnMemAlloc;
+    a2dp_aac_mem.Copy = cmnMemCopy;
+    a2dp_aac_mem.Free = cmnMemFree;
+    a2dp_aac_mem.Set = cmnMemSet;
+    a2dp_aac_mem.Check = cmnMemCheck;
+    VO_CODEC_INIT_USERDATA user_data;
+    memset(&user_data, 0, sizeof(user_data));
+    user_data.memflag = VO_IMF_USERMEMOPERATOR;
+    user_data.memData = &a2dp_aac_mem;
+    if (a2dp_aac_api.Init(&a2dp_aac_handle, VO_AUDIO_CodingAAC, &user_data) != VO_ERR_NONE) {
+        bt_log("vo-aacenc Init failed\n");
+        a2dp_aac_handle = NULL;
+        return;
+    }
+    AACENC_PARAM params;
+    memset(&params, 0, sizeof(params));
+    params.sampleRate = (int)aac_sample_rate_hz;
+    params.bitRate = (int)aac_bitrate;
+    params.nChannels = aac_channels;
+    params.adtsUsed = 0; /* Raw AAC access units for RFC 3016 LATM */
+    if (a2dp_aac_api.SetParam(a2dp_aac_handle, VO_PID_AAC_ENCPARAM, &params) != VO_ERR_NONE) {
+        bt_log("vo-aacenc SetParam failed\n");
+        a2dp_aac_api.Uninit(a2dp_aac_handle);
+        a2dp_aac_handle = NULL;
+        return;
+    }
+    a2dp_aac_ready = true;
+}
+
+static void reinit_a2dp_encoder(void)
+{
+    if (a2dp_active_codec == Y1_BT_CODEC_AAC)
+        reinit_a2dp_aac();
+    else
+        reinit_a2dp_sbc();
+}
+
 static unsigned long a2dp_sample_rate(void)
 {
+    if (a2dp_active_codec == Y1_BT_CODEC_AAC)
+        return aac_sample_rate_hz;
     switch (sbc_cfg_octet0 & 0xF0) {
         case 0x10: return 48000;
         case 0x20: return 44100;
@@ -852,15 +985,165 @@ static void avdtp_send_accept(uint8_t rx_hdr, uint8_t sig_id, const void *params
     l2cap_send_pdu(cid_avdtp_sig_remote, buf, 2 + plen);
 }
 
+static void avdtp_send_sbc_configuration(uint8_t seid, uint8_t sup_o0, uint8_t sup_o1,
+                                         uint8_t min_bp, uint8_t max_bp, bool allow_xq)
+{
+    uint8_t freq = (sup_o0 & 0x10) ? 0x10 :
+                   (sup_o0 & 0x20) ? 0x20 :
+                   (sup_o0 & 0x40) ? 0x40 : 0x80;
+    uint8_t channel_mode = (sup_o0 & 0x01) ? 0x01 :
+                           (sup_o0 & 0x02) ? 0x02 :
+                           (sup_o0 & 0x04) ? 0x04 :
+                           (sup_o0 & 0x08) ? 0x08 : 0;
+    uint8_t blocks = (sup_o1 & 0x10) ? 0x10 :
+                     (sup_o1 & 0x20) ? 0x20 :
+                     (sup_o1 & 0x40) ? 0x40 :
+                     (sup_o1 & 0x80) ? 0x80 : 0;
+    uint8_t subbands = (sup_o1 & 0x04) ? 0x04 :
+                       (sup_o1 & 0x08) ? 0x08 : 0;
+    uint8_t allocation = (sup_o1 & 0x01) ? 0x01 :
+                         (sup_o1 & 0x02) ? 0x02 : 0;
+
+    remote_seid = seid;
+    sbc_remote_min_bitpool = min_bp;
+    sbc_remote_max_bitpool = max_bp;
+    sbc_remote_octet0 = sup_o0;
+    sbc_remote_octet1 = sup_o1;
+
+    sbc_is_xq = false;
+    sbc_cfg_octet0 = freq | channel_mode;
+    sbc_bitpool = max_bp > 53 ? 53 : max_bp;
+    if (sbc_bitpool < min_bp)
+        sbc_bitpool = min_bp;
+    sbc_cfg_octet1 = blocks | subbands | allocation;
+
+    if (allow_xq && (sup_o0 & 0x04) && min_bp <= 38 && max_bp >= 38) {
+        sbc_is_xq = true;
+        sbc_cfg_octet0 = freq | 0x04; /* Dual Channel */
+        sbc_bitpool = 38;
+        a2dp_active_codec = Y1_BT_CODEC_SBC_XQ;
+        bt_log("Negotiating SBC XQ (Dual Channel, high-bitpool)\n");
+    } else {
+        a2dp_active_codec = Y1_BT_CODEC_SBC;
+        bt_log("Negotiating standard SBC\n");
+    }
+
+    reinit_a2dp_encoder();
+
+    uint8_t set_cfg[12] = {
+        (uint8_t)(remote_seid << 2), /* ACP SEID */
+        (1 << 2),                    /* INT SEID = 1 */
+        0x01, 0x00,                  /* Media Transport */
+        0x07, 0x06, 0x00, 0x00,      /* Media Codec: Audio, SBC */
+        sbc_cfg_octet0,
+        sbc_cfg_octet1,
+        min_bp,
+        sbc_bitpool
+    };
+    avdtp_send_cmd(AVDTP_SET_CONFIGURATION, set_cfg, sizeof(set_cfg));
+}
+
+static bool avdtp_send_aac_configuration(uint8_t seid, const uint8_t cap[6])
+{
+    uint8_t obj_type = (cap[0] & 0x80) ? 0x80 :
+                       (cap[0] & 0x40) ? 0x40 : 0;
+    if (!obj_type)
+        return false;
+
+    uint8_t sr1 = 0, sr2 = 0;
+    unsigned long hz = 44100;
+    if (cap[1] & 0x01) {
+        sr1 = 0x01; /* 44.1 kHz */
+        hz = 44100;
+    } else if (cap[2] & 0x80) {
+        sr2 = 0x80; /* 48 kHz */
+        hz = 48000;
+    } else {
+        return false;
+    }
+
+    uint8_t ch_bit = (cap[2] & 0x04) ? 0x04 :
+                     (cap[2] & 0x08) ? 0x08 : 0;
+    if (!ch_bit)
+        return false;
+
+    uint32_t remote_br = ((uint32_t)(cap[3] & 0x7F) << 16) |
+                         ((uint32_t)cap[4] << 8) |
+                         (uint32_t)cap[5];
+    uint32_t target_br = 256000;
+    if (remote_br > 0 && remote_br < target_br)
+        target_br = remote_br;
+    if (target_br < 64000)
+        target_br = 64000;
+
+    remote_seid = seid;
+    a2dp_active_codec = Y1_BT_CODEC_AAC;
+    aac_sample_rate_hz = hz;
+    aac_channels = (ch_bit == 0x04) ? 2 : 1;
+    aac_bitrate = target_br;
+
+    aac_cfg_caps[0] = obj_type;
+    aac_cfg_caps[1] = sr1;
+    aac_cfg_caps[2] = (uint8_t)(sr2 | ch_bit);
+    aac_cfg_caps[3] = (uint8_t)((target_br >> 16) & 0x7F); /* CBR (VBR=0) */
+    aac_cfg_caps[4] = (uint8_t)((target_br >> 8) & 0xFF);
+    aac_cfg_caps[5] = (uint8_t)(target_br & 0xFF);
+
+    bt_log("Negotiating A2DP MPEG-2,4 AAC\n");
+    reinit_a2dp_encoder();
+
+    uint8_t set_cfg[14] = {
+        (uint8_t)(remote_seid << 2), /* ACP SEID */
+        (1 << 2),                    /* INT SEID = 1 */
+        0x01, 0x00,                  /* Media Transport */
+        0x07, 0x08, 0x00, 0x02,      /* Media Codec: Audio, MPEG-2,4 AAC */
+        aac_cfg_caps[0], aac_cfg_caps[1], aac_cfg_caps[2],
+        aac_cfg_caps[3], aac_cfg_caps[4], aac_cfg_caps[5]
+    };
+    avdtp_send_cmd(AVDTP_SET_CONFIGURATION, set_cfg, sizeof(set_cfg));
+    return true;
+}
+
+static void avdtp_configure_best_endpoint(void)
+{
+    if (avdtp_endpoint_configured)
+        return;
+
+    uint8_t preferred_codec = (uint8_t)y1_bt_get_device_codec(active_bdaddr);
+    if (preferred_codec == Y1_BT_CODEC_AAC && best_aac_seid != 0) {
+        if (avdtp_send_aac_configuration(best_aac_seid, aac_remote_caps)) {
+            avdtp_endpoint_configured = true;
+            avdtp_cap_query_ms = 0;
+            return;
+        }
+    }
+    if (best_sbc_seid != 0) {
+        avdtp_endpoint_configured = true;
+        avdtp_cap_query_ms = 0;
+        avdtp_send_sbc_configuration(best_sbc_seid, best_sbc_o0, best_sbc_o1,
+                                     best_sbc_min_bp, best_sbc_max_bp,
+                                     preferred_codec == Y1_BT_CODEC_SBC_XQ);
+        return;
+    }
+    if (best_aac_seid != 0 && avdtp_send_aac_configuration(best_aac_seid, aac_remote_caps)) {
+        avdtp_endpoint_configured = true;
+        avdtp_cap_query_ms = 0;
+        return;
+    }
+    avdtp_cap_query_ms = 0;
+    bt_log("Remote endpoints do not expose valid SBC or AAC capabilities\n");
+}
+
 static bool avdtp_request_next_sink_capabilities(void)
 {
     if (remote_sink_index >= remote_sink_count)
     {
-        bt_log("No remote audio sink endpoint supports SBC\n");
+        avdtp_configure_best_endpoint();
         return false;
     }
 
     remote_seid = remote_sink_seids[remote_sink_index++];
+    avdtp_cap_query_ms = bt_monotonic_ms();
     uint8_t param[1] = { (uint8_t)(remote_seid << 2) };
     avdtp_send_cmd(AVDTP_GET_CAPABILITIES, param, sizeof(param));
     return true;
@@ -963,6 +1246,8 @@ static void handle_avdtp_sig_pdu(const uint8_t *pdu, uint16_t len)
             case AVDTP_DISCOVER: {
                 remote_sink_count = 0;
                 remote_sink_index = 0;
+                best_sbc_seid = 0;
+                best_aac_seid = 0;
                 for (int i = 2; i + 1 < len; i += 2) {
                     uint8_t seid = pdu[i] >> 2;
                     bool in_use = (pdu[i] & 0x02) != 0;
@@ -977,104 +1262,46 @@ static void handle_avdtp_sig_pdu(const uint8_t *pdu, uint16_t len)
             }
             case AVDTP_GET_CAPABILITIES:
             case AVDTP_GET_ALL_CAPABILITIES: {
-                bool found_sbc = false;
-                uint8_t sup_o0 = 0, sup_o1 = 0, min_bp = 0, max_bp = 0;
-                for (int i = 2; i + 7 < len; i++) {
-                    if (pdu[i] == 0x07 && pdu[i + 1] == 0x06 &&
-                        pdu[i + 2] == 0x00 && pdu[i + 3] == 0x00) {
-                        sup_o0 = pdu[i + 4];
-                        sup_o1 = pdu[i + 5];
-                        min_bp = pdu[i + 6];
-                        max_bp = pdu[i + 7];
-                        found_sbc = true;
+                uint8_t queried_seid = remote_seid;
+                for (int i = 2; i + 3 < len; ) {
+                    uint8_t cat = pdu[i];
+                    uint8_t losc = pdu[i + 1];
+                    if (i + 2 + losc > len)
                         break;
+                    if (cat == 0x07 && losc == 6 &&
+                        pdu[i + 2] == 0x00 && pdu[i + 3] == 0x00 && best_sbc_seid == 0) {
+                        uint8_t sup_o0 = pdu[i + 4];
+                        uint8_t sup_o1 = pdu[i + 5];
+                        uint8_t min_bp = pdu[i + 6];
+                        uint8_t max_bp = pdu[i + 7];
+                        if (min_bp >= 2 && max_bp >= min_bp && max_bp <= 250 &&
+                            (sup_o0 & 0xF0) && (sup_o0 & 0x0F) &&
+                            (sup_o1 & 0xF0) && (sup_o1 & 0x0C) && (sup_o1 & 0x03)) {
+                            best_sbc_seid = queried_seid;
+                            best_sbc_o0 = sup_o0;
+                            best_sbc_o1 = sup_o1;
+                            best_sbc_min_bp = min_bp;
+                            best_sbc_max_bp = max_bp;
+                        }
+                    } else if (cat == 0x07 && losc == 8 &&
+                               pdu[i + 2] == 0x00 && pdu[i + 3] == 0x02 && best_aac_seid == 0) {
+                        const uint8_t *ac = &pdu[i + 4];
+                        if ((ac[0] & 0xC0) &&
+                            ((ac[1] & 0x01) || (ac[2] & 0x80)) &&
+                            (ac[2] & 0x0C)) {
+                            best_aac_seid = queried_seid;
+                            memcpy(aac_remote_caps, ac, 6);
+                        }
                     }
+                    i += 2 + losc;
                 }
-                if (!found_sbc || min_bp < 2 || max_bp < min_bp || max_bp > 250)
-                {
-                    if (!avdtp_request_next_sink_capabilities())
-                        bt_log("Remote endpoints do not expose valid SBC capabilities\n");
-                    break;
-                }
-
-                sbc_remote_min_bitpool = min_bp;
-                sbc_remote_max_bitpool = max_bp;
-                sbc_remote_octet0 = sup_o0;
-                sbc_remote_octet1 = sup_o1;
-
-                uint8_t freq = (sup_o0 & 0x10) ? 0x10 :
-                               (sup_o0 & 0x20) ? 0x20 :
-                               (sup_o0 & 0x40) ? 0x40 : 0x80;
-                if (!(sup_o0 & 0xF0))
-                {
-                    if (!avdtp_request_next_sink_capabilities())
-                        bt_log("Remote SBC endpoint has no common sample rate\n");
-                    break;
-                }
-
-                uint8_t channel_mode = (sup_o0 & 0x01) ? 0x01 :
-                                       (sup_o0 & 0x02) ? 0x02 :
-                                       (sup_o0 & 0x04) ? 0x04 :
-                                       (sup_o0 & 0x08) ? 0x08 : 0;
-                if (channel_mode == 0)
-                {
-                    if (!avdtp_request_next_sink_capabilities())
-                        bt_log("Remote SBC endpoint has no common channel mode\n");
-                    break;
-                }
-
-                uint8_t blocks = (sup_o1 & 0x10) ? 0x10 :
-                                 (sup_o1 & 0x20) ? 0x20 :
-                                 (sup_o1 & 0x40) ? 0x40 :
-                                 (sup_o1 & 0x80) ? 0x80 : 0;
-                uint8_t subbands = (sup_o1 & 0x04) ? 0x04 :
-                                   (sup_o1 & 0x08) ? 0x08 : 0;
-                uint8_t allocation = (sup_o1 & 0x01) ? 0x01 :
-                                     (sup_o1 & 0x02) ? 0x02 : 0;
-                if (!blocks || !subbands || !allocation)
-                {
-                    if (!avdtp_request_next_sink_capabilities())
-                        bt_log("Remote SBC endpoint has no compatible SBC parameters\n");
-                    break;
-                }
-
-                sbc_is_xq = false;
-                sbc_cfg_octet0 = freq | channel_mode;
-                sbc_bitpool = max_bp > 53 ? 53 : max_bp;
-                if (sbc_bitpool < min_bp)
-                {
-                    if (!avdtp_request_next_sink_capabilities())
-                        bt_log("Remote SBC bitpool range is unsupported\n");
-                    break;
-                }
-
-                uint8_t preferred_codec = (uint8_t)y1_bt_get_device_codec(active_bdaddr);
-                sbc_cfg_octet1 = blocks | subbands | allocation;
-                if (preferred_codec == Y1_BT_CODEC_SBC_XQ &&
-                    (sup_o0 & 0x04) && min_bp <= 38 && max_bp >= 38)
-                {
-                    /* Use SBC XQ when manually selected for this device and supported by endpoint. */
-                    sbc_is_xq = true;
-                    sbc_cfg_octet0 = freq | 0x04; /* Dual Channel */
-                    sbc_bitpool = 38;
-                    bt_log("Negotiating SBC XQ (Dual Channel, high-bitpool)\n");
+                uint8_t preferred = (uint8_t)y1_bt_get_device_codec(active_bdaddr);
+                if ((preferred == Y1_BT_CODEC_AAC && best_aac_seid != 0) ||
+                    (preferred != Y1_BT_CODEC_AAC && best_sbc_seid != 0)) {
+                    avdtp_configure_best_endpoint();
                 } else {
-                    bt_log("Negotiating standard SBC\n");
+                    avdtp_request_next_sink_capabilities();
                 }
-
-                reinit_a2dp_sbc();
-
-                uint8_t set_cfg[12] = {
-                    (uint8_t)(remote_seid << 2), /* ACP SEID */
-                    (1 << 2),                    /* INT SEID = 1 */
-                    0x01, 0x00,                  /* Media Transport */
-                    0x07, 0x06, 0x00, 0x00,      /* Media Codec: Audio, SBC */
-                    sbc_cfg_octet0,
-                    sbc_cfg_octet1,
-                    min_bp,
-                    sbc_bitpool
-                };
-                avdtp_send_cmd(AVDTP_SET_CONFIGURATION, set_cfg, sizeof(set_cfg));
                 break;
             }
             case AVDTP_SET_CONFIGURATION: {
@@ -1093,7 +1320,7 @@ static void handle_avdtp_sig_pdu(const uint8_t *pdu, uint16_t len)
             }
             case AVDTP_START: {
                 bool was_streaming = a2dp_streaming;
-                reinit_a2dp_sbc();
+                reinit_a2dp_encoder();
                 a2dp_streaming = true;
                 bt_state = Y1_BT_STATE_STREAMING;
                 bt_log("A2DP STREAMING STARTED (local initiated)\n");
@@ -1106,47 +1333,26 @@ static void handle_avdtp_sig_pdu(const uint8_t *pdu, uint16_t len)
                 break;
         }
     }
-    else if (msg_type == 0x03) /* Response Reject to our Initiator command */
+    else if (msg_type == 0x03 || msg_type == 0x01) /* Response Reject or General Reject */
     {
         if (sig_id == AVDTP_SET_CONFIGURATION) {
             bt_log("AVDTP_SET_CONFIGURATION rejected by remote\n");
-            if (sbc_is_xq) {
+            if (a2dp_active_codec == Y1_BT_CODEC_AAC && best_sbc_seid != 0) {
+                bt_log("Falling back from AAC to SBC\n");
+                avdtp_send_sbc_configuration(best_sbc_seid, best_sbc_o0, best_sbc_o1,
+                                             best_sbc_min_bp, best_sbc_max_bp, false);
+            } else if (sbc_is_xq && best_sbc_seid != 0) {
                 /* Remote rejected SBC XQ: fallback to standard SBC Joint Stereo */
                 bt_log("Falling back from SBC XQ to standard SBC (Joint Stereo)\n");
-                sbc_is_xq = false;
-                uint8_t freq = sbc_cfg_octet0 & 0xF0;
-                uint8_t channel_mode = (sbc_remote_octet0 & 0x01) ? 0x01 :
-                                       (sbc_remote_octet0 & 0x02) ? 0x02 :
-                                       (sbc_remote_octet0 & 0x04) ? 0x04 :
-                                       (sbc_remote_octet0 & 0x08) ? 0x08 : 0;
-                sbc_cfg_octet0 = freq | channel_mode;
-                sbc_bitpool = sbc_remote_max_bitpool > 53 ?
-                              53 : sbc_remote_max_bitpool;
-                if (sbc_bitpool < sbc_remote_min_bitpool)
-                    sbc_bitpool = sbc_remote_min_bitpool;
-                sbc_cfg_octet1 = (sbc_remote_octet1 & 0x10) ? 0x10 :
-                                 (sbc_remote_octet1 & 0x20) ? 0x20 :
-                                 (sbc_remote_octet1 & 0x40) ? 0x40 : 0x80;
-                sbc_cfg_octet1 |= (sbc_remote_octet1 & 0x04) ? 0x04 : 0x08;
-                sbc_cfg_octet1 |= (sbc_remote_octet1 & 0x01) ? 0x01 : 0x02;
-                reinit_a2dp_sbc();
-
-                uint8_t set_cfg[12] = {
-                    (uint8_t)(remote_seid << 2), /* ACP SEID */
-                    (1 << 2),                    /* INT SEID = 1 */
-                    0x01, 0x00,                  /* Media Transport */
-                    0x07, 0x06, 0x00, 0x00,      /* Media Codec: Audio, SBC */
-                    sbc_cfg_octet0,
-                    sbc_cfg_octet1,
-                    2,                           /* min_bp */
-                    sbc_bitpool                  /* max_bp */
-                };
-                avdtp_send_cmd(AVDTP_SET_CONFIGURATION, set_cfg, sizeof(set_cfg));
+                avdtp_send_sbc_configuration(best_sbc_seid, best_sbc_o0, best_sbc_o1,
+                                             best_sbc_min_bp, best_sbc_max_bp, false);
+            } else {
+                bt_log("All available A2DP endpoint configurations were rejected\n");
             }
-            else if (!sbc_is_xq && !avdtp_request_next_sink_capabilities())
-            {
-                bt_log("All available SBC endpoint configurations were rejected\n");
-            }
+        }
+        else if (sig_id == AVDTP_GET_CAPABILITIES || sig_id == AVDTP_GET_ALL_CAPABILITIES)
+        {
+            avdtp_request_next_sink_capabilities();
         }
     }
 }
@@ -1532,8 +1738,10 @@ int y1_bt_get_active_device_volume(void)
     int vol = -15;
     for (int i = 0; i < bt_num_devices; i++) {
         if (memcmp(bt_devices[i].bdaddr, active_bdaddr, 6) == 0) {
-            if (bt_devices[i].volume != 0)
-                vol = bt_devices[i].volume;
+            int saved = bt_receiver_mode ? bt_devices[i].receiver_volume
+                                         : bt_devices[i].volume;
+            if (saved != Y1_BT_VOL_UNSET)
+                vol = saved;
             break;
         }
     }
@@ -1548,12 +1756,30 @@ void y1_bt_store_active_volume(int vol)
     pthread_mutex_lock(&bt_mtx);
     for (int i = 0; i < bt_num_devices; i++) {
         if (memcmp(bt_devices[i].bdaddr, active_bdaddr, 6) == 0) {
-            bt_devices[i].volume = vol;
+            if (bt_receiver_mode)
+                bt_devices[i].receiver_volume = vol;
+            else
+                bt_devices[i].volume = vol;
             save_paired_devices();
             break;
         }
     }
     pthread_mutex_unlock(&bt_mtx);
+}
+
+bool y1_bt_get_active_bdaddr(uint8_t out_bd[6])
+{
+    if (!out_bd)
+        return false;
+    bool ok = (acl_handle != 0xFFFF) ||
+              (bt_state == Y1_BT_STATE_CONNECTED) ||
+              (bt_state == Y1_BT_STATE_STREAMING);
+    if (!ok)
+        return false;
+    pthread_mutex_lock(&bt_mtx);
+    memcpy(out_bd, active_bdaddr, 6);
+    pthread_mutex_unlock(&bt_mtx);
+    return true;
 }
 
 int y1_bt_get_device_codec(const uint8_t bdaddr[6])
@@ -1565,8 +1791,7 @@ int y1_bt_get_device_codec(const uint8_t bdaddr[6])
     pthread_mutex_lock(&bt_mtx);
     for (int i = 0; i < bt_num_devices; i++) {
         if (memcmp(bt_devices[i].bdaddr, bdaddr, 6) == 0) {
-            codec = (bt_devices[i].codec == Y1_BT_CODEC_SBC_XQ) ?
-                    Y1_BT_CODEC_SBC_XQ : Y1_BT_CODEC_SBC;
+            codec = sanitize_bt_codec(bt_devices[i].codec);
             break;
         }
     }
@@ -1579,8 +1804,7 @@ void y1_bt_set_device_codec(const uint8_t bdaddr[6], int codec)
     if (!bdaddr)
         return;
 
-    uint8_t new_codec = (codec == Y1_BT_CODEC_SBC_XQ) ?
-                        Y1_BT_CODEC_SBC_XQ : Y1_BT_CODEC_SBC;
+    uint8_t new_codec = (uint8_t)sanitize_bt_codec(codec);
     bool changed = false;
 
     pthread_mutex_lock(&bt_mtx);
@@ -1617,8 +1841,7 @@ int y1_bt_get_active_device_codec(void)
     pthread_mutex_lock(&bt_mtx);
     for (int i = bt_num_devices - 1; i >= 0; i--) {
         if (bt_devices[i].paired) {
-            codec = (bt_devices[i].codec == Y1_BT_CODEC_SBC_XQ) ?
-                    Y1_BT_CODEC_SBC_XQ : Y1_BT_CODEC_SBC;
+            codec = sanitize_bt_codec(bt_devices[i].codec);
             break;
         }
     }
@@ -1628,8 +1851,7 @@ int y1_bt_get_active_device_codec(void)
 
 void y1_bt_set_active_device_codec(int codec)
 {
-    default_bt_codec = (codec == Y1_BT_CODEC_SBC_XQ) ?
-                       Y1_BT_CODEC_SBC_XQ : Y1_BT_CODEC_SBC;
+    default_bt_codec = (uint8_t)sanitize_bt_codec(codec);
     if (acl_handle != 0xFFFF) {
         y1_bt_set_device_codec(active_bdaddr, default_bt_codec);
         return;
@@ -2784,11 +3006,158 @@ static bool mt6572_bt_hw_open_and_init(void)
 /* ============================================================================
  * Background Bluetooth Worker Thread (HCI Rx + A2DP RTP Media Tx)
  * ============================================================================ */
+struct latm_bitwriter {
+    uint8_t *buf;
+    size_t   cap;
+    size_t   bitpos;
+};
+
+static void latm_put_bits(struct latm_bitwriter *bw, uint32_t val, int nbits)
+{
+    for (int i = nbits - 1; i >= 0; i--) {
+        size_t byte_idx = bw->bitpos >> 3;
+        if (byte_idx < bw->cap) {
+            if ((bw->bitpos & 7) == 0)
+                bw->buf[byte_idx] = 0;
+            if ((val >> i) & 1U)
+                bw->buf[byte_idx] |= (uint8_t)(0x80U >> (bw->bitpos & 7));
+        }
+        bw->bitpos++;
+    }
+}
+
+static size_t write_latm_aac_frame(uint8_t *dst, size_t dst_cap,
+                                   const uint8_t *au, size_t au_len,
+                                   unsigned long sample_rate, uint8_t channels)
+{
+    struct latm_bitwriter bw = { dst, dst_cap, 0 };
+    uint32_t sr_idx = (sample_rate == 48000) ? 3 : 4; /* 3=48kHz, 4=44.1kHz */
+    uint32_t ch_cfg = (channels == 1) ? 1 : 2;
+
+    /* AudioMuxElement(1): useSameStreamMux=0, StreamMuxConfig() */
+    latm_put_bits(&bw, 0, 1); /* useSameStreamMux = 0 */
+    latm_put_bits(&bw, 0, 1); /* audioMuxVersion = 0 */
+    latm_put_bits(&bw, 1, 1); /* allStreamsSameTimeFraming = 1 */
+    latm_put_bits(&bw, 0, 6); /* numSubFrames = 0 */
+    latm_put_bits(&bw, 0, 4); /* numProgram = 0 */
+    latm_put_bits(&bw, 0, 3); /* numLayer = 0 */
+
+    /* AudioSpecificConfig(): AAC-LC (2), sr_idx, ch_cfg, GASpecificConfig(0,0,0) */
+    latm_put_bits(&bw, 2, 5);
+    latm_put_bits(&bw, sr_idx, 4);
+    latm_put_bits(&bw, ch_cfg, 4);
+    latm_put_bits(&bw, 0, 3);
+
+    latm_put_bits(&bw, 0, 3);    /* frameLengthType = 0 */
+    latm_put_bits(&bw, 0xFF, 8); /* latmBufferFullness = 0xFF */
+    latm_put_bits(&bw, 0, 1);    /* otherDataPresent = 0 */
+    latm_put_bits(&bw, 0, 1);    /* crcCheckPresent = 0 */
+
+    /* PayloadLengthInfo() */
+    size_t rem = au_len;
+    while (rem >= 255) {
+        latm_put_bits(&bw, 0xFF, 8);
+        rem -= 255;
+    }
+    latm_put_bits(&bw, (uint32_t)rem, 8);
+
+    /* PayloadMux() */
+    for (size_t i = 0; i < au_len; i++)
+        latm_put_bits(&bw, au[i], 8);
+
+    /* Byte-align */
+    while (bw.bitpos & 7)
+        latm_put_bits(&bw, 0, 1);
+
+    size_t out_len = bw.bitpos >> 3;
+    return (out_len <= dst_cap) ? out_len : 0;
+}
+
+static void drain_a2dp_aac_and_transmit(void)
+{
+    if (!a2dp_aac_ready || !a2dp_aac_handle)
+        return;
+
+    const size_t samples_per_frame = 1024;
+    int pkts_sent = 0;
+    while (pkts_sent < 4)
+    {
+        size_t r = pcm_ring_r;
+        size_t w = pcm_ring_w;
+        size_t avail = (w - r) & (PCM_RING_SAMPLES - 1);
+        if (avail < samples_per_frame)
+            break;
+
+        int16_t aac_pcm[1024 * 2];
+        if (aac_channels == 1) {
+            for (size_t s = 0; s < samples_per_frame; s++) {
+                size_t idx = ((r + s) & (PCM_RING_SAMPLES - 1)) * 2;
+                aac_pcm[s] = (int16_t)(((int32_t)pcm_ring[idx] + (int32_t)pcm_ring[idx + 1]) >> 1);
+            }
+        } else {
+            for (size_t s = 0; s < samples_per_frame; s++) {
+                size_t idx = ((r + s) & (PCM_RING_SAMPLES - 1)) * 2;
+                aac_pcm[s * 2 + 0] = pcm_ring[idx + 0];
+                aac_pcm[s * 2 + 1] = pcm_ring[idx + 1];
+            }
+        }
+
+        VO_CODECBUFFER input = { 0 }, output = { 0 };
+        VO_AUDIO_OUTPUTINFO output_info = { 0 };
+        uint8_t aac_raw[1536];
+        input.Buffer = (VO_PBYTE)aac_pcm;
+        input.Length = (VO_U32)(samples_per_frame * aac_channels * sizeof(int16_t));
+        if (a2dp_aac_api.SetInputData(a2dp_aac_handle, &input) != VO_ERR_NONE)
+            break;
+
+        output.Buffer = (VO_PBYTE)aac_raw;
+        output.Length = sizeof(aac_raw);
+        if (a2dp_aac_api.GetOutputData(a2dp_aac_handle, &output, &output_info) != VO_ERR_NONE ||
+            output.Length == 0)
+            break;
+
+        uint8_t rtp_pkt[1600];
+        rtp_pkt[0]  = 0x80; /* RTP v2 */
+        rtp_pkt[1]  = 0xE0; /* Marker=1, Payload type 96 */
+        rtp_pkt[2]  = (uint8_t)(rtp_seq_num >> 8);
+        rtp_pkt[3]  = (uint8_t)(rtp_seq_num & 0xFF);
+        rtp_seq_num++;
+        rtp_pkt[4]  = (uint8_t)(rtp_timestamp >> 24);
+        rtp_pkt[5]  = (uint8_t)(rtp_timestamp >> 16);
+        rtp_pkt[6]  = (uint8_t)(rtp_timestamp >> 8);
+        rtp_pkt[7]  = (uint8_t)(rtp_timestamp & 0xFF);
+        rtp_pkt[8]  = 0x00;
+        rtp_pkt[9]  = 0x00;
+        rtp_pkt[10] = 0x00;
+        rtp_pkt[11] = 0x01; /* SSRC = 1 */
+
+        size_t latm_len = write_latm_aac_frame(&rtp_pkt[12], sizeof(rtp_pkt) - 12,
+                                               aac_raw, (size_t)output.Length,
+                                               aac_sample_rate_hz, aac_channels);
+        if (latm_len == 0)
+            break;
+
+        if (l2cap_send_pdu(cid_avdtp_med_remote, rtp_pkt, (uint16_t)(12 + latm_len)) < 0)
+            break;
+
+        pcm_ring_r = (r + samples_per_frame) & (PCM_RING_SAMPLES - 1);
+        rtp_timestamp += (uint32_t)samples_per_frame;
+        pkts_sent++;
+    }
+}
+
 static void drain_a2dp_pcm_and_transmit(void)
 {
     if (bt_receiver_mode || !a2dp_streaming ||
-        cid_avdtp_med_remote == 0 || acl_handle == 0xFFFF ||
-        !a2dp_sbc_ready)
+        cid_avdtp_med_remote == 0 || acl_handle == 0xFFFF)
+        return;
+
+    if (a2dp_active_codec == Y1_BT_CODEC_AAC) {
+        drain_a2dp_aac_and_transmit();
+        return;
+    }
+
+    if (!a2dp_sbc_ready)
         return;
 
     size_t codesize = sbc_get_codesize(&a2dp_sbc);
@@ -3065,6 +3434,12 @@ static void *bt_worker_thread(void *arg)
                 avdtp_initiator = true;
                 avdtp_send_cmd(AVDTP_DISCOVER, NULL, 0);
                 bt_log("A2DP signaling ready; sending AVDTP_DISCOVER\n");
+            } else if (!avdtp_endpoint_configured && avdtp_cap_query_ms != 0 &&
+                       (best_sbc_seid != 0 || best_aac_seid != 0) &&
+                       now_ms - avdtp_cap_query_ms >= 1200) {
+                avdtp_cap_query_ms = 0;
+                bt_log("AVDTP capability query timed out; configuring best discovered endpoint\n");
+                avdtp_configure_best_endpoint();
             }
         }
 
@@ -3537,6 +3912,39 @@ void y1_bt_a2dp_write_pcm(const void *buf, size_t bytes, unsigned long sampr)
     pcm_ring_w = w;
 }
 
+
+bool y1_bt_poll_connection_notify(bool *connected, char *name_buf, size_t name_sz)
+{
+    static int prev_connected = 0;
+    static char last_name[64] = "";
+
+    bool now_connected = (acl_handle != 0xFFFF) ||
+                         (bt_state == Y1_BT_STATE_CONNECTED) ||
+                         (bt_state == Y1_BT_STATE_STREAMING);
+
+    if (now_connected && connected_name[0])
+    {
+        snprintf(last_name, sizeof(last_name), "%s", connected_name);
+    }
+
+    if ((int)now_connected != prev_connected)
+    {
+        prev_connected = (int)now_connected;
+        if (connected)
+            *connected = now_connected;
+        if (name_buf && name_sz > 0)
+        {
+            const char *src = now_connected
+                ? (connected_name[0] ? connected_name : last_name)
+                : last_name;
+            snprintf(name_buf, name_sz, "%s", src);
+        }
+        if (!now_connected)
+            last_name[0] = '\0';
+        return true;
+    }
+    return false;
+}
 
 #ifdef HAVE_RECORDING
 bool y1_bt_is_connected(void)

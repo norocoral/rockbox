@@ -34,7 +34,8 @@ enum y1_bt_state {
 
 enum y1_bt_codec {
     Y1_BT_CODEC_SBC = 0,
-    Y1_BT_CODEC_SBC_XQ = 1
+    Y1_BT_CODEC_SBC_XQ = 1,
+    Y1_BT_CODEC_AAC = 2
 };
 
 struct y1_bt_device {
@@ -46,8 +47,9 @@ struct y1_bt_device {
     uint8_t link_key[16];
     uint8_t key_type;
     char    pin[16];
-    int     volume;    /* Remembered volume for this specific device */
-    uint8_t codec;     /* Remembered codec (enum y1_bt_codec, default Y1_BT_CODEC_SBC) */
+    int     volume;          /* Remembered source volume for this device (-1000 = unset) */
+    int     receiver_volume; /* Remembered receiver volume for this device (-1000 = unset) */
+    uint8_t codec;           /* Remembered codec (enum y1_bt_codec, default Y1_BT_CODEC_SBC) */
 };
 
 enum y1_bt_receiver_command {
@@ -100,6 +102,9 @@ void y1_bt_update_metadata(const char *title, const char *artist,
 void y1_bt_get_receiver_metadata(char *title, size_t title_size,
                                  char *artist, size_t artist_size,
                                  char *album, size_t album_size);
+
+bool y1_bt_poll_connection_notify(bool *connected, char *name_buf, size_t name_sz);
+bool y1_bt_get_active_bdaddr(uint8_t out_bd[6]);
 
 #ifdef HAVE_RECORDING
 bool y1_bt_is_connected(void);

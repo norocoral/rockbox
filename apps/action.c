@@ -33,6 +33,10 @@
 #include "appevents.h"
 #include "button.h"
 #include "action.h"
+#if defined(INNIOASIS_Y1) && !defined(SIMULATOR) && !defined(BOOTLOADER)
+#include "splash.h"
+#include "innioasis/y1/bt-y1.h"
+#endif
 #include "kernel.h"
 #include "core_alloc.h"
 
@@ -1640,6 +1644,36 @@ int get_custom_action(int context,int timeout,
     int action = get_action_worker(&action_last, &current);
 
     action = do_backlight(&action_last, &current, action);
+
+#if defined(INNIOASIS_Y1) && !defined(SIMULATOR) && !defined(BOOTLOADER)
+    {
+        static bool in_bt_notify = false;
+        if (!in_bt_notify)
+        {
+            bool bt_conn = false;
+            char bt_name[64];
+            if (y1_bt_poll_connection_notify(&bt_conn, bt_name, sizeof(bt_name)))
+            {
+                queue_broadcast(bt_conn ? SYS_PHONE_PLUGGED : SYS_PHONE_UNPLUGGED, 0);
+#ifdef HAVE_BACKLIGHT
+                if (is_backlight_on(false))
+#endif
+                {
+                    in_bt_notify = true;
+                    if (bt_name[0])
+                        splashf(HZ * 2, "Bluetooth %s: %s",
+                                bt_conn ? "Connected" : "Disconnected", bt_name);
+                    else
+                        splashf(HZ * 2, "Bluetooth %s",
+                                bt_conn ? "Connected" : "Disconnected");
+                    in_bt_notify = false;
+                    if (action == ACTION_NONE)
+                        action = ACTION_REDRAW;
+                }
+            }
+        }
+    }
+#endif
 
     return action;
 }

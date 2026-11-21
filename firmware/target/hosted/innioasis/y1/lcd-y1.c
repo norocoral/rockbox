@@ -29,7 +29,9 @@
 #if LCD_DEPTH == 16
 static fb_data navigation_old_frame[LCD_WIDTH * LCD_HEIGHT];
 static long navigation_fade_start;
+static long navigation_fade_duration_ticks;
 static bool navigation_fade_active;
+static bool navigation_fade_force;
 static unsigned navigation_fade_alpha;
 #endif
 
@@ -53,11 +55,14 @@ void lcd_init_device(void)
 
 void lcd_enable(bool on)
 {
-    bool cur_act = lcd_active();
-    if (cur_act == on)
+    if (!y1_fb_is_ready())
         return;
 
-    if (!y1_fb_is_ready())
+    if (on && y1_display_is_early_suspended())
+        y1_display_exit_early_suspend();
+
+    bool cur_act = lcd_active();
+    if (cur_act == on)
         return;
 
 #if LCD_DEPTH == 16
@@ -99,13 +104,15 @@ void lcd_update(void)
 #if LCD_DEPTH == 16
 static long navigation_fade_duration(void)
 {
+    if (navigation_fade_duration_ticks > 0)
+        return navigation_fade_duration_ticks;
     long duration = (HZ * 30 + 999) / 1000;
     return duration > 0 ? duration : 1;
 }
 
-void lcd_navigation_fade_capture(void)
+static void lcd_fade_capture_internal(long duration_ms, bool force)
 {
-    if (!global_settings.navigation_fade)
+    if ((!force && !global_settings.navigation_fade))
     {
         navigation_fade_active = false;
         return;
@@ -117,10 +124,23 @@ void lcd_navigation_fade_capture(void)
     if (!src)
         return;
 
+    long duration = (HZ * duration_ms + 999) / 1000;
     memcpy(navigation_old_frame, src, sizeof(navigation_old_frame));
     navigation_fade_start = current_tick;
+    navigation_fade_duration_ticks = duration > 0 ? duration : 1;
     navigation_fade_alpha = 0;
+    navigation_fade_force = force;
     navigation_fade_active = true;
+}
+
+void lcd_navigation_fade_capture(void)
+{
+    lcd_fade_capture_internal(30, false);
+}
+
+void lcd_splash_fade_capture(void)
+{
+    lcd_fade_capture_internal(80, true);
 }
 
 static uint16_t navigation_blend_cb(int x, int y, uint16_t new_pixel, void *user)
@@ -149,11 +169,14 @@ void lcd_update_rect(int x, int y, int width, int height)
         return;
 #endif
 
+    if (y1_display_is_early_suspended())
+        y1_display_exit_early_suspend();
+
 #if LCD_DEPTH == 16
     bool blend_navigation = navigation_fade_active;
     if (blend_navigation)
     {
-        if (!global_settings.navigation_fade)
+        if (!navigation_fade_force && !global_settings.navigation_fade)
         {
             navigation_fade_active = false;
             blend_navigation = false;

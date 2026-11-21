@@ -374,6 +374,15 @@ MENUITEM_SETTING(y1_keyclick_wheel_only_item,
                  &global_settings.keyclick_wheel_only, NULL);
 MENUITEM_SETTING(y1_keyclick_list_edge_item,
                  &global_settings.keyclick_list_edge, NULL);
+MENUITEM_SETTING(y1_vibrate_enabled_item,
+                 &global_settings.keyclick_vibrate, NULL);
+MENUITEM_SETTING(y1_vibrate_ms_item,
+                 &global_settings.keyclick_vibrate_ms, NULL);
+MENUITEM_SETTING(y1_vibrate_repeat_item,
+                 &global_settings.keyclick_vibrate_repeat, NULL);
+MAKE_MENU(y1_vibrations_menu, ID2P(LANG_Y1_VIBRATIONS), 0, Icon_NOICON,
+          &y1_vibrate_enabled_item, &y1_vibrate_ms_item,
+          &y1_vibrate_repeat_item);
 #endif
 #ifdef HAVE_HARDWARE_CLICK
 MENUITEM_SETTING(keyclick_hardware, &global_settings.keyclick_hardware, NULL);
@@ -381,6 +390,7 @@ MENUITEM_SETTING(keyclick_hardware, &global_settings.keyclick_hardware, NULL);
 MAKE_MENU(keyclick_menu, ID2P(LANG_KEYCLICK), 0, Icon_NOICON,
            &keyclick, &keyclick_hardware, &keyclick_repeats,
            &y1_keyclick_wheel_only_item, &y1_keyclick_list_edge_item,
+           &y1_vibrations_menu,
            &y1_keyclick_custom_sound_item, &y1_keyclick_custom_sound_clear_item);
 #else
 MAKE_MENU(keyclick_menu, ID2P(LANG_KEYCLICK), 0, Icon_NOICON,
@@ -391,6 +401,7 @@ MAKE_MENU(keyclick_menu, ID2P(LANG_KEYCLICK), 0, Icon_NOICON,
 MAKE_MENU(keyclick_menu, ID2P(LANG_KEYCLICK), 0, Icon_NOICON,
            &keyclick, &keyclick_repeats,
            &y1_keyclick_wheel_only_item, &y1_keyclick_list_edge_item,
+           &y1_vibrations_menu,
            &y1_keyclick_custom_sound_item, &y1_keyclick_custom_sound_clear_item);
 #else
 MAKE_MENU(keyclick_menu, ID2P(LANG_KEYCLICK), 0, Icon_NOICON,
@@ -564,11 +575,15 @@ static const char *y1_bt_get_localized_status(void)
             snprintf(status_buf, sizeof(status_buf), "%s: %s",
                      str(LANG_Y1_BT_CONNECTED_SHORT), dev_name);
             return status_buf;
-        case Y1_BT_STATE_STREAMING:
+        case Y1_BT_STATE_STREAMING: {
+            int codec = y1_bt_get_active_device_codec();
+            const char *codec_str = (codec == Y1_BT_CODEC_AAC) ? "AAC" :
+                                    (codec == Y1_BT_CODEC_SBC_XQ) ? "SBC XQ" : "SBC";
             snprintf(status_buf, sizeof(status_buf), "%s (%s): %s",
                      str(LANG_Y1_BT_STATUS_STREAMING),
-                     y1_bt_get_active_device_codec() == Y1_BT_CODEC_SBC_XQ ? "SBC XQ" : "SBC", dev_name);
+                     codec_str, dev_name);
             return status_buf;
+        }
         case Y1_BT_STATE_ERROR:      return (const char *)str(LANG_Y1_BT_STATUS_ERROR);
         default:                     return (const char *)str(LANG_UNKNOWN);
     }
@@ -844,7 +859,11 @@ static const char *y1_bt_codec_list_get_name(int selected_item, void *data,
     (void)data;
     (void)buffer;
     (void)buffer_len;
-    return (selected_item == Y1_BT_CODEC_SBC_XQ) ? "SBC XQ" : "SBC";
+    if (selected_item == Y1_BT_CODEC_AAC)
+        return "AAC";
+    if (selected_item == Y1_BT_CODEC_SBC_XQ)
+        return "SBC XQ";
+    return "SBC";
 }
 
 static int menu_y1_bt_codec_action(void)
@@ -854,9 +873,9 @@ static int menu_y1_bt_codec_action(void)
 
     gui_synclist_init(&codec_list, y1_bt_codec_list_get_name, NULL, false, 1, NULL);
     gui_synclist_set_title(&codec_list, str(LANG_Y1_BT_CODEC), Icon_NOICON);
-    gui_synclist_set_nb_items(&codec_list, 2);
+    gui_synclist_set_nb_items(&codec_list, 3);
     gui_synclist_select_item(&codec_list,
-                             cur_codec == Y1_BT_CODEC_SBC_XQ ? 1 : 0);
+                             (cur_codec >= 0 && cur_codec <= 2) ? cur_codec : 0);
     gui_synclist_draw(&codec_list);
 
     while (true)
@@ -871,8 +890,7 @@ static int menu_y1_bt_codec_action(void)
         if (action == ACTION_STD_OK)
         {
             int sel = gui_synclist_get_sel_pos(&codec_list);
-            y1_bt_set_active_device_codec(sel == 1 ?
-                Y1_BT_CODEC_SBC_XQ : Y1_BT_CODEC_SBC);
+            y1_bt_set_active_device_codec(sel);
             break;
         }
     }
@@ -1143,6 +1161,8 @@ MENUITEM_FUNCTION_DYNTEXT(sleeptimer_toggle, 0, toggle_sleeptimer,
 MENUITEM_SETTING(sleeptimer_duration,
                  &global_settings.sleeptimer_duration,
                  sleeptimer_duration_cb);
+MENUITEM_SETTING(sleeptimer_fadeout,
+                 &global_settings.sleeptimer_fadeout, NULL);
 MENUITEM_SETTING(sleeptimer_on_startup,
                  &global_settings.sleeptimer_on_startup, NULL);
 MENUITEM_SETTING(keypress_restarts_sleeptimer,
@@ -1165,6 +1185,7 @@ MAKE_MENU(startup_shutdown_menu, ID2P(LANG_STARTUP_SHUTDOWN),
             &poweroff,
             &sleeptimer_toggle,
             &sleeptimer_duration,
+            &sleeptimer_fadeout,
             &sleeptimer_on_startup,
             &keypress_restarts_sleeptimer,
 #if defined(SETTINGS_CLEAR_ON_HOLD)

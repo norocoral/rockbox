@@ -52,7 +52,49 @@ static long progress_next_tick, talked_tick;
 #endif
 
 #define RECT_SPACING 3
+#define RECT_SPACING_X (RECT_SPACING + 4)
 #define SPLASH_MEMORY_INTERVAL (HZ)
+
+static void splash_fill_rounded_rect(struct screen *screen, int w, int h)
+{
+    if (w < 10 || h < 10)
+    {
+        screen->fill_viewport();
+        return;
+    }
+
+    screen->hline(4, w - 5, 0);
+    screen->hline(2, w - 3, 1);
+    screen->fillrect(1, 2, w - 2, 2);
+    screen->fillrect(0, 4, w, h - 8);
+    screen->fillrect(1, h - 4, w - 2, 2);
+    screen->hline(2, w - 3, h - 2);
+    screen->hline(4, w - 5, h - 1);
+}
+
+static void splash_draw_rounded_border(struct screen *screen, int w, int h)
+{
+    if (w < 10 || h < 10)
+    {
+        screen->draw_border_viewport();
+        return;
+    }
+
+    screen->hline(4, w - 5, 0);
+    screen->hline(4, w - 5, h - 1);
+    screen->vline(0, 4, h - 5);
+    screen->vline(w - 1, 4, h - 5);
+
+    /* 4px rounded corners */
+    screen->hline(2, 3, 1);
+    screen->vline(1, 2, 3);
+    screen->hline(w - 4, w - 3, 1);
+    screen->vline(w - 2, 2, 3);
+    screen->hline(2, 3, h - 2);
+    screen->vline(1, h - 4, h - 3);
+    screen->hline(w - 4, w - 3, h - 2);
+    screen->vline(w - 2, h - 4, h - 3);
+}
 
 /* splash_internal does the actual drawing of the splash box and text
  * each call to splash remembers the max size and will not shrink the splash box
@@ -119,7 +161,7 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
     int x = 0, w = 0;
     int y;
     int space_w, chr_h;
-    int width = vp->width - RECT_SPACING*2;
+    int width = vp->width - RECT_SPACING_X*2;
     int height = vp->height;
 
     /* prevent screen artifacts by keeping the max width / height seen */
@@ -276,7 +318,7 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
 
     screen->scroll_stop();
 
-    width = maxw + 2*RECT_SPACING;
+    width = maxw + 2*RECT_SPACING_X;
     height = maxh + 2*RECT_SPACING;
 
     if (width > vp->width)
@@ -293,7 +335,7 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
         vp->flags |=  VP_FLAG_ALIGN_CENTER;
 
     /* prevent artifacts by locking to max width & height observed on repeated calls */
-    max_width[screen->screen_type] = width - 2*RECT_SPACING;
+    max_width[screen->screen_type] = width - 2*RECT_SPACING_X;
     max_height[screen->screen_type] = height - 2*RECT_SPACING;
 
 #if LCD_DEPTH > 1
@@ -328,7 +370,7 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
 #endif
         vp->drawmode = (DRMODE_SOLID|DRMODE_INVERSEVID);
 
-    screen->fill_viewport();
+    splash_fill_rounded_rect(screen, vp->width, vp->height);
 
 #if LCD_DEPTH > 1
     if (screen->depth > 1)
@@ -340,7 +382,7 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
 #endif
         vp->drawmode = DRMODE_SOLID;
 
-    screen->draw_border_viewport();
+    splash_draw_rounded_border(screen, vp->width, vp->height);
 
     /* center y within the available splash box */
     if (y < maxh)
@@ -353,7 +395,7 @@ static bool splash_internal(struct screen * screen, const char *fmt, va_list ap,
     {
         if (lines[i].len > 0)
         {
-            x = lines[i].x;
+            x = has_tabs ? RECT_SPACING_X + lines[i].x : 0;
             screen->putsxyf(x, y, "%.*s", lines[i].len, lines[i].str);
         }
     }
@@ -375,6 +417,10 @@ void splashf(int ticks, const char *fmt, ...)
     /* If fmt is a lang ID then get the corresponding string (which
        still might contain % place holders). */
     fmt = P2STR((unsigned char *)fmt);
+#if defined(INNIOASIS_Y1) && !defined(BOOTLOADER)
+    extern void lcd_splash_fade_capture(void);
+    lcd_splash_fade_capture();
+#endif
     FOR_NB_SCREENS(i)
     {
         struct screen * screen = &(screens[i]);
@@ -390,7 +436,12 @@ void splashf(int ticks, const char *fmt, ...)
         screen->set_viewport(last_vp);
     }
     if (ticks)
+    {
         sleep(ticks);
+#if defined(INNIOASIS_Y1) && !defined(BOOTLOADER)
+        lcd_splash_fade_capture();
+#endif
+    }
 }
 
 /* set delay before progress meter is shown */
@@ -440,9 +491,9 @@ void splash_progress(int current, int total, const char *fmt, ...)
         if (splash_internal(screen, fmt, ap, &vp, 1))
         {
             int size = screen->getcharheight();
-            int x = RECT_SPACING;
+            int x = RECT_SPACING_X;
             int y = vp.height - size - RECT_SPACING;
-            int w = vp.width - RECT_SPACING * 2;
+            int w = vp.width - RECT_SPACING_X * 2;
             int h = size;
 #ifdef HAVE_LCD_COLOR
             const int sb_flags = HORIZONTAL | FOREGROUND;

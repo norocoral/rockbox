@@ -131,8 +131,8 @@ static int y1_idle_tick_timeout_ms(uint64_t now_ms, uint64_t last_active_ms)
     if (y1_bt_is_scanning() || y1_button_hold_active())
         return 0;
     if (y1_playback_active() || y1_bt_is_receiver_mode())
-        return 100;
-    return 2500;
+        return 250;
+    return 30000;
 }
 #endif
 
@@ -162,7 +162,7 @@ static void *tick_worker(void *arg)
                 ticks_elapsed = 1;
             if (ticks_elapsed > 1)
                 current_tick += (ticks_elapsed - 1);
-            if (ev > 0)
+            if (ev > 0 || elapsed_ms > (uint64_t)sleep_ms + 50 || y1_button_hold_active())
                 last_active_ms = after_ms;
             sim_enter_irq_handler();
             call_tick_tasks();

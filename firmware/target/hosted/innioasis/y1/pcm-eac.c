@@ -152,8 +152,12 @@ size_t y1_audio_receiver_write(const int16_t *samples, size_t frames)
 
 static int16_t y1_receiver_apply_volume(int16_t sample, int volume_cb)
 {
-    static const int32_t gain_q15[] = {
-        29204, 32768, 36766, 41259, 46286, 51970, 58270, 65381
+    static const int32_t neg_db_q15[20] = {
+        32768, 29204, 26029, 23198, 20675, 18427, 16423, 14637, 13045, 11627,
+        10362,  9235,  8231,  7336,  6538,  5827,  5193,  4629,  4125,  3677
+    };
+    static const int32_t pos_db_q15[7] = {
+        32768, 36766, 41259, 46286, 51970, 58270, 65381
     };
 
     if (volume_cb <= -740)
@@ -163,13 +167,23 @@ static int16_t y1_receiver_apply_volume(int16_t sample, int volume_cb)
     int sw_cb = vol_cb_to_sw_remainder(volume_cb, hp_idx);
     if (sw_cb <= -740)
         return 0;
-    if (sw_cb < -10)
-        sw_cb = -10;
-    else if (sw_cb > 60)
-        sw_cb = 60;
 
-    int32_t scaled = ((int32_t)sample *
-                      gain_q15[(sw_cb + 10) / 10]) >> 15;
+    int db = sw_cb / 10;
+    int32_t g;
+    if (db >= 0) {
+        if (db > 6)
+            db = 6;
+        g = pos_db_q15[db];
+    } else {
+        int neg_db = -db;
+        if (neg_db > 74)
+            return 0;
+        g = neg_db_q15[neg_db % 20];
+        for (int d = neg_db / 20; d > 0; d--)
+            g /= 10;
+    }
+
+    int32_t scaled = ((int32_t)sample * g) >> 15;
     if (scaled > INT16_MAX)
         scaled = INT16_MAX;
     else if (scaled < INT16_MIN)
@@ -178,6 +192,7 @@ static int16_t y1_receiver_apply_volume(int16_t sample, int volume_cb)
 }
 
 #define MT6323_HP_PGA_MAX_IDX    7
+#define MT6323_HP_PGA_NOMINAL_IDX 4
 #define MT6323_HP_PGA_STEP_CB    20
 #define MT6323_HP_PGA_MAX_CB     (MT6323_HP_PGA_MAX_IDX * MT6323_HP_PGA_STEP_CB)
 #define MT6323_HP_PGA_OFFSET_CB  MT6323_HP_PGA_MAX_CB
@@ -198,34 +213,43 @@ void audiohw_set_frequency(int fsel) { (void)fsel; }
 
 static int vol_cb_to_hp_idx(int vol_cb)
 {
-    int target_cb;
-    int analog_cb;
-
+    /* Combine DAC analog PGA volume (0..7) with software volume across the
+     * full -74 dB .. +6 dB range:
+     * -Below 0 dB (-73 dB .. 0 dB): scale DAC analog gain smoothly from 0 to 5
+     *  alongside software attenuation so lower volume always lowers DAC gain.
+     * -Above 0 dB (+1 dB .. +6 dB): step DAC analog gain from 5 to 7 (6 at
+     *  +1..+3 dB, 7 at +4..+6 dB) while software volume stays capped at 0 dBFS. */
     if (vol_cb <= -740)
         return 0;
+    if (vol_cb >= 40)
+        return MT6323_HP_PGA_MAX_IDX; /* 7 */
+    if (vol_cb > 0)
+        return 6;
 
-    target_cb = vol_cb + MT6323_HP_PGA_OFFSET_CB;
-    if (target_cb <= 0)
-        return 0;
-
-    analog_cb = ((target_cb + MT6323_HP_PGA_STEP_CB - 1) / MT6323_HP_PGA_STEP_CB)
-                * MT6323_HP_PGA_STEP_CB;
-    if (analog_cb > MT6323_HP_PGA_MAX_CB)
-        analog_cb = MT6323_HP_PGA_MAX_CB;
-    return analog_cb / MT6323_HP_PGA_STEP_CB;
+    /* Map -740 .. 0 cb linearly to DAC PGA indices 0 .. 5 */
+    int pos_cb = vol_cb + 740; /* 0 .. 740 */
+    int idx = (pos_cb * 5) / 740;
+    if (idx < 0)
+        idx = 0;
+    else if (idx > 5)
+        idx = 5;
+    return idx;
 }
 
 static int vol_cb_to_sw_remainder(int vol_cb, int hp_idx)
 {
-    int target_cb;
-    int analog_cb;
-
     if (vol_cb <= -740)
         return PCM_MUTE_LEVEL;
 
-    target_cb = vol_cb + MT6323_HP_PGA_OFFSET_CB;
-    analog_cb = hp_idx * MT6323_HP_PGA_STEP_CB;
-    return target_cb - analog_cb;
+    /* When at or above 0 dB (including when DAC is at maximum volume hp_idx == 7),
+     * never increase volume in software above 0 dBFS to prevent clipping. */
+    if (vol_cb >= 0 || hp_idx >= MT6323_HP_PGA_MAX_IDX)
+        return 0;
+
+    /* Combine full software attenuation range (-64.0 dB .. 0.0 dB) with the
+     * 0..5 DAC analog PGA steps (-10 dB analog below 0 dB, -14 dB below +6 dB)
+     * to achieve the full 74 dB (-74 dB .. 0 dB) attenuation down to silence. */
+    return (vol_cb * 640) / 740;
 }
 
 static void y1_audio_set_output_enabled(bool enable)
@@ -296,7 +320,10 @@ static void *pcm_worker(void *arg)
             {
                 struct timespec ts;
                 clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_sec += 2;
+                /* Keep DAC powered for 30s while screen is awake so track
+                 * changes, scrubbing, and menu resume don't power-cycle the
+                 * headphone amp; use 2s when screen is suspended for power saving. */
+                ts.tv_sec += y1_display_is_early_suspended() ? 2 : 30;
                 int rc = pthread_cond_timedwait(&pcm_cond, &pcm_mtx, &ts);
                 if (rc == ETIMEDOUT && dma_stopped == 1 &&
                     !y1_audio_receiver_is_active() && audio_output_enabled)
@@ -304,7 +331,9 @@ static void *pcm_worker(void *arg)
                     pthread_mutex_unlock(&pcm_mtx);
                     y1_audio_set_output_enabled(false);
                     y1_audio_set_deep_idle(true);
-                    if (y1_display_is_early_suspended() && !y1_usb_is_storage_attached())
+                    if (y1_display_is_early_suspended() &&
+                        !y1_usb_is_storage_attached() &&
+                        !y1_button_hold_active())
                         y1_power_set_idle_sleep(true);
                     pthread_mutex_lock(&pcm_mtx);
                 }
@@ -428,7 +457,7 @@ static void *pcm_worker(void *arg)
             while (remaining > 0 && dma_stopped == 0 && dma_locked == 0 && !pcm_thread_exit)
             {
                 bool bt_active = y1_bt_a2dp_is_streaming();
-                size_t max_chunk = bt_active ? 4096 : 16384;
+                size_t max_chunk = bt_active ? 4096 : 32768;
                 size_t chunk = remaining > max_chunk ? max_chunk : (remaining & ~3);
                 if (chunk == 0)
                     break;
@@ -557,10 +586,12 @@ static void sink_dma_postinit(void)
 static void sink_set_freq(uint16_t freq)
 {
     unsigned long sampr = (freq < HW_NUM_FREQ) ? hw_freq_sampr[freq] : freq;
+    pthread_mutex_lock(&pcm_mtx);
     current_sampr = sampr;
     if (y1_audio_is_open() && audio_output_enabled) {
         y1_audio_set_sample_rate(sampr);
     }
+    pthread_mutex_unlock(&pcm_mtx);
 }
 
 static void sink_dma_start(const void *addr, size_t size)

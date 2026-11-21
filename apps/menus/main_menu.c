@@ -415,18 +415,38 @@ static int info_action_callback(int action, struct gui_synclist *lists)
     if (valid_time(tm))
     {
 /* INFO_DATE */
-        simplelist_addline("%s %d %d",
-            str(LANG_MONTH_JANUARY + tm->tm_mon),
-            tm->tm_mday,
-            tm->tm_year+1900);
+        switch (global_settings.date_format)
+        {
+            case 0:
+                simplelist_addline("%04d-%02d-%02d",
+                    tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+                break;
+            case 1:
+                simplelist_addline("%02d/%02d/%04d",
+                    tm->tm_mon + 1, tm->tm_mday, tm->tm_year + 1900);
+                break;
+            case 2:
+                simplelist_addline("%02d/%02d/%04d",
+                    tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
+                break;
+            default:
+                simplelist_addline("%s %d %d",
+                    str(LANG_MONTH_JANUARY + tm->tm_mon),
+                    tm->tm_mday, tm->tm_year + 1900);
+                break;
+        }
 /* INFO_TIME */
+        bool is_korean = (strcasecmp(global_settings.lang_file, "korean") == 0);
+        const char *ampm = "";
+        if (global_settings.timeformat != 0)
+            ampm = is_korean ? (tm->tm_hour > 11 ? "오후" : "오전")
+                             : (tm->tm_hour > 11 ? "P" : "A");
         simplelist_addline("%02d:%02d:%02d %s",
             global_settings.timeformat == 0 ? tm->tm_hour :
                  ((tm->tm_hour + 11) % 12) + 1,
                  tm->tm_min,
                  tm->tm_sec,
-                 global_settings.timeformat == 0 ? "" :
-                 tm->tm_hour>11 ? "P" : "A");
+                 ampm);
     }
     else
     {

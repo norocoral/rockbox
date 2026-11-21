@@ -53,6 +53,61 @@ static void ICODE_ATTR lcd_alpha_bitmap_part_mix(const fb_data* image,
                                       int width, int height,
                                       int stride_image, int stride_src);
 #endif /* !DISABLE_ALPHA_BITMAP */
+
+#ifdef INNIOASIS_Y1
+static bool y1_render_aa_image = true;
+static bool y1_render_aa_text = true;
+static bool y1_render_transparency_plus = true;
+
+void lcd_set_rendering_options(bool aa_image, bool aa_text, bool trans_plus)
+{
+    y1_render_aa_image = aa_image;
+    y1_render_aa_text = aa_text;
+    y1_render_transparency_plus = trans_plus;
+}
+
+static inline fb_data y1_rgb565_blend(fb_data bg, fb_data fg, int alpha32)
+{
+    if (alpha32 <= 0)
+        return bg;
+    if (alpha32 >= 32)
+        return fg;
+    unsigned bg_rb = bg & 0xf81f;
+    unsigned fg_rb = fg & 0xf81f;
+    unsigned bg_g  = bg & 0x07e0;
+    unsigned fg_g  = fg & 0x07e0;
+    unsigned rb = (bg_rb + (((int)fg_rb - (int)bg_rb) * alpha32 >> 5)) & 0xf81f;
+    unsigned g  = (bg_g  + (((int)fg_g  - (int)bg_g)  * alpha32 >> 5)) & 0x07e0;
+    return (fb_data)(rb | g);
+}
+
+static inline int y1_rgb565_luma(fb_data px)
+{
+    int r = (px >> 11) & 0x1f;
+    int g = (px >> 6) & 0x1f;
+    int b = px & 0x1f;
+    return r * 2 + g * 5 + b;
+}
+
+static inline bool y1_is_transparent_px(fb_data px, bool trans_plus)
+{
+    if (px == TRANSPARENT_COLOR)
+        return true;
+    if (!trans_plus)
+        return false;
+    int r = (px >> 11) & 0x1f;
+    int g = (px >> 6) & 0x1f;
+    int b = px & 0x1f;
+    if (r >= 18 && b >= 18 && g < 16 && r > g + 6 && b > g + 6)
+    {
+        int m_dist = (31 - r) + (31 - b) + g * 2;
+        if (m_dist <= 4)
+            return true;
+    }
+    return false;
+}
+#endif
+
 #include "lcd-color-common.c"
 #include "lcd-bitmap-common.c"
 #include "lcd-16bit-common.c"
@@ -159,6 +214,49 @@ void ICODE_ATTR lcd_bitmap_part(const fb_data *src, int src_x, int src_y,
     dst = FBADDR(x, y);
     stride_dst = vp->buffer->stride;
 
+#ifdef INNIOASIS_Y1
+    if (y1_render_aa_image && width >= 3 && height >= 3)
+    {
+        for (int row = 0; row < height; row++)
+        {
+            const fb_data *s_row = src + row * stride;
+            fb_data *d_row = dst + row * stride_dst;
+            if (row == 0 || row == height - 1)
+            {
+                memcpy(d_row, s_row, width * sizeof(fb_data));
+                continue;
+            }
+            const fb_data *s_up = s_row - stride;
+            const fb_data *s_dn = s_row + stride;
+            d_row[0] = s_row[0];
+            for (int col = 1; col < width - 1; col++)
+            {
+                fb_data c = s_row[col];
+                fb_data u = s_up[col];
+                fb_data d = s_dn[col];
+                fb_data l = s_row[col - 1];
+                fb_data r = s_row[col + 1];
+                fb_data nb = c;
+                if (u == l && u != c && d != u && r != u)
+                    nb = u;
+                else if (u == r && u != c && d != u && l != u)
+                    nb = u;
+                else if (d == l && d != c && u != d && r != d)
+                    nb = d;
+                else if (d == r && d != c && u != d && l != d)
+                    nb = d;
+
+                if (nb != c && abs(y1_rgb565_luma(nb) - y1_rgb565_luma(c)) > 24)
+                    d_row[col] = y1_rgb565_blend(c, nb, 8);
+                else
+                    d_row[col] = c;
+            }
+            d_row[width - 1] = s_row[width - 1];
+        }
+        return;
+    }
+#endif
+
     do
     {
         memcpy(dst, src, width * sizeof(fb_data));
@@ -183,6 +281,90 @@ void ICODE_ATTR lcd_bitmap_transparent_part(const fb_data *src, int src_x,
 
     src += stride * src_y + src_x; /* move starting point */
     dst = FBADDR(x, y);
+
+#ifdef INNIOASIS_Y1
+    if (y1_render_aa_image || y1_render_transparency_plus)
+    {
+        bool aa_img = y1_render_aa_image;
+        bool trans_p = y1_render_transparency_plus;
+        for (int row = 0; row < height; row++)
+        {
+            const fb_data *src_row = src + row * stride;
+            fb_data *dst_row = dst + row * stride_dst;
+            for (int col = 0; col < width; col++)
+            {
+                fb_data px = src_row[col];
+                if (px == TRANSPARENT_COLOR)
+                    continue;
+                if (px == REPLACEWITHFG_COLOR)
+                    px = (fb_data)fg;
+
+                int alpha = 32;
+                if (trans_p)
+                {
+                    int r = (px >> 11) & 0x1f;
+                    int g = (px >> 6) & 0x1f;
+                    int b = px & 0x1f;
+                    if (r >= 18 && b >= 18 && g < 16 && r > g + 6 && b > g + 6)
+                    {
+                        int m_dist = (31 - r) + (31 - b) + g * 2;
+                        if (m_dist <= 4)
+                            continue;
+                        if (m_dist < 24)
+                        {
+                            alpha = ((m_dist - 4) * 32) / 20;
+                            if (alpha < 1) alpha = 1;
+                            int dr = ((int)r * 32 - (32 - alpha) * 31) / alpha;
+                            int dg = ((int)g * 32) / alpha;
+                            int db = ((int)b * 32 - (32 - alpha) * 31) / alpha;
+                            if (dr < 0) dr = 0; else if (dr > 31) dr = 31;
+                            if (dg < 0) dg = 0; else if (dg > 31) dg = 31;
+                            if (db < 0) db = 0; else if (db > 31) db = 31;
+                            px = (fb_data)((dr << 11) | (dg << 6) | db);
+                        }
+                    }
+                }
+
+                if (aa_img && alpha == 32)
+                {
+                    int t_cnt = 0;
+                    if (col > 0 && y1_is_transparent_px(src_row[col - 1], trans_p))
+                        t_cnt++;
+                    if (col + 1 < width && y1_is_transparent_px(src_row[col + 1], trans_p))
+                        t_cnt++;
+                    if (row > 0 && y1_is_transparent_px(src_row[col - stride], trans_p))
+                        t_cnt++;
+                    if (row + 1 < height && y1_is_transparent_px(src_row[col + stride], trans_p))
+                        t_cnt++;
+
+                    if (t_cnt == 1)
+                        alpha = 25;
+                    else if (t_cnt == 2)
+                        alpha = 18;
+                    else if (t_cnt >= 3)
+                        alpha = 11;
+                    else if (col > 0 && col + 1 < width && row > 0 && row + 1 < height)
+                    {
+                        fb_data u = src_row[col - stride];
+                        fb_data d = src_row[col + stride];
+                        fb_data l = src_row[col - 1];
+                        fb_data r = src_row[col + 1];
+                        fb_data nb = px;
+                        if (u == l && u != px && d != u && r != u) nb = u;
+                        else if (u == r && u != px && d != u && l != u) nb = u;
+                        else if (d == l && d != px && u != d && r != d) nb = d;
+                        else if (d == r && d != px && u != d && l != d) nb = d;
+                        if (nb != px && abs(y1_rgb565_luma(nb) - y1_rgb565_luma(px)) > 24)
+                            px = y1_rgb565_blend(px, nb, 8);
+                    }
+                }
+
+                dst_row[col] = (alpha >= 32) ? px : y1_rgb565_blend(dst_row[col], px, alpha);
+            }
+        }
+        return;
+    }
+#endif
 
 #ifdef CPU_ARM
     {

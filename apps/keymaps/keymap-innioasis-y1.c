@@ -159,9 +159,12 @@ static const struct button_mapping button_context_pitchscreen[] = {
     { ACTION_PS_NUDGE_LEFTOFF,  BUTTON_LEFT|BUTTON_REL,             BUTTON_NONE },
     { ACTION_PS_NUDGE_RIGHT,    BUTTON_RIGHT,                       BUTTON_NONE },
     { ACTION_PS_NUDGE_RIGHTOFF, BUTTON_RIGHT|BUTTON_REL,            BUTTON_NONE },
-    { ACTION_PS_TOGGLE_MODE,    BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
-    { ACTION_PS_RESET,          BUTTON_PLAY|BUTTON_REL,             BUTTON_PLAY },
-    { ACTION_PS_EXIT,           BUTTON_MENU|BUTTON_REL,             BUTTON_MENU },
+    { ACTION_PS_TOGGLE_MODE,    BUTTON_PLAY,                        BUTTON_NONE },
+    { ACTION_PS_EXIT,           BUTTON_MENU,                        BUTTON_NONE },
+    { ACTION_PS_EXIT,           BUTTON_SELECT|BUTTON_REL,           BUTTON_SELECT },
+    { ACTION_PS_RESET,          BUTTON_SELECT|BUTTON_REPEAT,        BUTTON_SELECT },
+    { ACTION_PS_SLOWER,         BUTTON_LEFT|BUTTON_REPEAT,          BUTTON_NONE },
+    { ACTION_PS_FASTER,         BUTTON_RIGHT|BUTTON_REPEAT,         BUTTON_NONE },
 
     LAST_ITEM_IN_LIST__NEXTLIST(CONTEXT_STD)
 }; /* button_context_pitchscreen */

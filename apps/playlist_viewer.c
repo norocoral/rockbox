@@ -59,6 +59,13 @@
 #include "tagcache.h"
 #endif
 
+#ifdef INNIOASIS_Y1
+#include "liby1.h"
+#include "rbpaths.h"
+#include "dir.h"
+#include "file.h"
+#endif
+
 /* Maximum number of tracks we can have loaded at one time                   */
 #define MAX_PLAYLIST_ENTRIES 200
 
@@ -150,6 +157,45 @@ struct playlist_search_data
 };
 
 static struct playlist_viewer  viewer;
+#ifdef INNIOASIS_Y1
+static int viewer_ipod_pl_idx = -1;
+
+static void pv_save_ipod_playlist(int ipod_idx, struct playlist_info *pl)
+{
+    if (ipod_idx < 0 || !pl)
+        return;
+    int n = playlist_amount_ex(pl);
+    const char **paths = NULL;
+    char *buf = NULL;
+    if (n > 0)
+    {
+        paths = (const char **)malloc((size_t)n * sizeof(char *));
+        buf = (char *)malloc((size_t)n * MAX_PATH);
+        if (!paths || !buf)
+        {
+            free(paths);
+            free(buf);
+            return;
+        }
+        int valid = 0;
+        for (int i = 0; i < n; i++)
+        {
+            struct playlist_track_info info;
+            if (playlist_get_track_info(pl, i, &info) >= 0)
+            {
+                char *dst = buf + (size_t)valid * MAX_PATH;
+                strmemccpy(dst, info.filename, MAX_PATH);
+                paths[valid++] = dst;
+            }
+        }
+        n = valid;
+    }
+    if (y1_ipod_native_save_playlist(ipod_idx, paths, n))
+        playlist_set_modified(pl, false);
+    free(paths);
+    free(buf);
+}
+#endif
 
 static void playlist_buffer_init(struct playlist_buffer *pb, char *names_buffer,
                                  int names_buffer_size)
@@ -457,7 +503,7 @@ static bool playlist_viewer_init(struct playlist_viewer * viewer,
     buffer += id3_size;
     buffer_size -= id3_size;
 
-    /* Viewing playlist on disk */
+    /* Viewing playlist on disk (or native iPod playlist) */
     if (file)
     {
         if (require_index_buffer)
@@ -466,6 +512,42 @@ static bool playlist_viewer_init(struct playlist_viewer * viewer,
             buffer += index_buffer_size;
             buffer_size -= index_buffer_size;
         }
+#ifdef INNIOASIS_Y1
+        viewer_ipod_pl_idx = -1;
+        if (dir && strncmp(dir, "ipod_pl:", 8) == 0)
+        {
+            int ipod_idx = atoi(dir + 8);
+            viewer_ipod_pl_idx = ipod_idx;
+            char m3u_name[32];
+            char m3u_path[MAX_PATH];
+            char cur_pl_name[MAX_PATH];
+            snprintf(m3u_name, sizeof(m3u_name), "ipod_pl_%d.m3u8", ipod_idx);
+            snprintf(m3u_path, sizeof(m3u_path), ROCKBOX_DIR "/%s", m3u_name);
+
+            /* Never truncate a backing file that current_playlist is actively using */
+            bool is_active_pl = playlist_get_name(NULL, cur_pl_name, sizeof(cur_pl_name)) &&
+                                strcmp(cur_pl_name, m3u_path) == 0;
+            if (!is_active_pl || !file_exists(m3u_path))
+            {
+                int ntracks = y1_ipod_native_playlist_track_count(ipod_idx);
+                int fd = open(m3u_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+                if (fd >= 0)
+                {
+                    for (int i = 0; i < ntracks; i++)
+                    {
+                        const char *tpath = y1_ipod_native_playlist_track_path(ipod_idx, i);
+                        if (tpath && tpath[0])
+                            fdprintf(fd, "%s\n", tpath);
+                    }
+                    close(fd);
+                }
+            }
+            viewer->playlist = playlist_load(ROCKBOX_DIR, m3u_name,
+                                             index_buffer, index_buffer_size,
+                                             buffer, buffer_size);
+        }
+        else
+#endif
         viewer->playlist = playlist_load(dir, file,
                                          index_buffer, index_buffer_size,
                                          buffer, buffer_size);
@@ -625,7 +707,14 @@ static void close_playlist_viewer(void)
         if(playlist_modified(viewer.playlist))
         {
             if (viewer.num_tracks && yesno_pop(ID2P(LANG_SAVE_CHANGES)))
+            {
+#ifdef INNIOASIS_Y1
+                if (viewer_ipod_pl_idx >= 0)
+                    pv_save_ipod_playlist(viewer_ipod_pl_idx, viewer.playlist);
+                else
+#endif
                 save_playlist_screen(viewer.playlist);
+            }
             else if (!viewer.num_tracks &&
                      confirm_delete_yesno(viewer.playlist->filename,
                                           viewer.title) == YESNO_YES)
@@ -764,6 +853,11 @@ static enum pv_context_result context_menu(int index)
                 viewer.selected_track = 0;
                 return PV_CONTEXT_MODIFIED;
             case 6:
+#ifdef INNIOASIS_Y1
+                if (viewer_ipod_pl_idx >= 0)
+                    pv_save_ipod_playlist(viewer_ipod_pl_idx, viewer.playlist);
+                else
+#endif
                 save_playlist_screen(viewer.playlist);
                 /* playlist indices of current playlist may have changed */
                 return viewer.playlist ? PV_CONTEXT_UNCHANGED : PV_CONTEXT_PL_UPDATE;
@@ -961,21 +1055,37 @@ static bool open_playlist_viewer(const char* filename,
     /* Set viewer title */
     if (filename)
     {
-        strmemccpy(path_buf, filename, sizeof(path_buf));
-        /* Separate directory from filename */
-        sep = strrchr(path_buf + 1, '/');
-        if (sep)
+#ifdef INNIOASIS_Y1
+        char ipod_m3u_buf[32];
+        if (strncmp(filename, "ipod_pl:", 8) == 0)
         {
-            *sep = '\0';
+            int ipod_idx = atoi(filename + 8);
+            const char *pl_name = y1_ipod_native_playlist_name(ipod_idx);
+            strmemccpy(path_buf, filename, sizeof(path_buf));
+            snprintf(ipod_m3u_buf, sizeof(ipod_m3u_buf), "ipod_pl_%d.m3u8", ipod_idx);
             dir = path_buf;
-            file = sep + 1;
-            viewer.title = filename + (sep + 1 - path_buf);
+            file = ipod_m3u_buf;
+            viewer.title = (pl_name && pl_name[0]) ? pl_name : (const char *)str(LANG_PLAYLIST);
         }
         else
+#endif
         {
-            dir = "/";
-            file = path_buf + 1;
-            viewer.title = filename + 1;
+            strmemccpy(path_buf, filename, sizeof(path_buf));
+            /* Separate directory from filename */
+            sep = strrchr(path_buf + 1, '/');
+            if (sep)
+            {
+                *sep = '\0';
+                dir = path_buf;
+                file = sep + 1;
+                viewer.title = filename + (sep + 1 - path_buf);
+            }
+            else
+            {
+                dir = "/";
+                file = path_buf + 1;
+                viewer.title = filename + 1;
+            }
         }
     }
     else
@@ -1323,6 +1433,114 @@ enum playlist_viewer_result playlist_viewer(void)
 {
     return playlist_viewer_ex(NULL, NULL);
 }
+
+#ifdef INNIOASIS_Y1
+struct ipod_pl_catalog_ctx {
+    int ipod_count;
+    bool has_file_pl;
+};
+
+static bool ipod_has_file_playlists(void)
+{
+    char dirpath[MAX_PATH];
+    catalog_get_directory(dirpath, sizeof(dirpath));
+    DIR *d = opendir(dirpath);
+    if (!d)
+        return false;
+
+    bool found = false;
+    struct dirent *entry;
+    while ((entry = readdir(d)) != NULL)
+    {
+        if (entry->d_name[0] == '.')
+            continue;
+        size_t len = strlen(entry->d_name);
+        if ((len > 4 && strcasecmp(&entry->d_name[len - 4], ".m3u") == 0) ||
+            (len > 5 && strcasecmp(&entry->d_name[len - 5], ".m3u8") == 0))
+        {
+            found = true;
+            break;
+        }
+    }
+    closedir(d);
+    return found;
+}
+
+static const char* ipod_pl_catalog_get_name(int selected_item, void *data,
+                                            char *buffer, size_t buffer_len)
+{
+    const struct ipod_pl_catalog_ctx *ctx = (const struct ipod_pl_catalog_ctx *)data;
+    if (ctx && ctx->has_file_pl && selected_item == ctx->ipod_count)
+    {
+        snprintf(buffer, buffer_len, "%s", str(LANG_Y1_FILE_PLAYLISTS));
+        return buffer;
+    }
+    const char *name = y1_ipod_native_playlist_name(selected_item);
+    snprintf(buffer, buffer_len, "%s", name ? name : "");
+    return buffer;
+}
+
+bool playlist_viewer_ipod_catalog(void)
+{
+    struct ipod_pl_catalog_ctx ctx;
+    ctx.ipod_count = y1_ipod_native_playlist_count();
+    ctx.has_file_pl = ipod_has_file_playlists();
+    int total_items = ctx.ipod_count + (ctx.has_file_pl ? 1 : 0);
+
+    struct gui_synclist lists;
+    gui_synclist_init(&lists, ipod_pl_catalog_get_name, &ctx, false, 1, NULL);
+    gui_synclist_set_nb_items(&lists, total_items);
+    gui_synclist_set_title(&lists, str(LANG_PLAYLISTS), Icon_Playlist);
+    if (total_items > 0)
+        gui_synclist_select_item(&lists, 0);
+    gui_synclist_draw(&lists);
+
+    while (true)
+    {
+        int action;
+        if (list_do_action(CONTEXT_LIST, HZ / 2, &lists, &action))
+            continue;
+
+        if (action == ACTION_STD_OK && total_items > 0)
+        {
+            int sel = gui_synclist_get_sel_pos(&lists);
+            if (ctx.has_file_pl && sel == ctx.ipod_count)
+            {
+                if (catalog_view_playlists())
+                    return true;
+                gui_synclist_draw(&lists);
+                continue;
+            }
+
+            char ipod_ref[32];
+            snprintf(ipod_ref, sizeof(ipod_ref), "ipod_pl:%d", sel);
+            int viewer_sel = 0;
+            switch (playlist_viewer_ex(ipod_ref, &viewer_sel))
+            {
+                case PLAYLIST_VIEWER_OK:
+                    return true;
+                case PLAYLIST_VIEWER_CANCEL:
+                    gui_synclist_draw(&lists);
+                    break;
+                case PLAYLIST_VIEWER_USB:
+                case PLAYLIST_VIEWER_MAINMENU:
+                default:
+                    return false;
+            }
+        }
+        else if (action == ACTION_STD_CANCEL ||
+                 action == ACTION_STD_MENU ||
+                 action == ACTION_TREE_STOP)
+        {
+            return false;
+        }
+        else if (default_event_handler(action) == SYS_USB_CONNECTED)
+        {
+            return false;
+        }
+    }
+}
+#endif
 
 static const char* playlist_search_callback_name(int selected_item, void * data,
                                                  char *buffer, size_t buffer_len)

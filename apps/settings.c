@@ -1172,6 +1172,7 @@ void settings_apply(bool read_disk)
     dsp_pbe_precut(global_settings.pbe_precut);
     dsp_pbe_enable(global_settings.pbe);
 #ifdef HAVE_PITCHCONTROL
+    dsp_set_timestretch_algorithm(global_settings.timestretch_algorithm);
     dsp_timestretch_enable(global_settings.timestretch_enabled);
 #endif
     dsp_set_compressor(&global_settings.compressor_settings);
@@ -1195,6 +1196,12 @@ void settings_apply(bool read_disk)
     lcd_set_sleep_after_backlight_off(global_settings.lcd_sleep_after_backlight_off);
 #endif
 #endif /* HAVE_BACKLIGHT */
+
+#if defined(INNIOASIS_Y1) && LCD_DEPTH == 16
+    lcd_set_rendering_options(global_settings.y1_aa_image,
+                              global_settings.y1_aa_text,
+                              global_settings.y1_transparency_plus);
+#endif
 
 #ifdef HAVE_COMPOSITE_VIDEO_OUT
     settings_apply_videoout(global_settings.composite_video_output);

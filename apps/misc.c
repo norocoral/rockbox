@@ -661,6 +661,154 @@ static bool bt_audio_active = false;
 static bool bt_caused_pause = false;
 static volatile int y1_bt_audio_pending_event = 0;
 
+#define BT_PROFILES_PATH ROCKBOX_DIR "/bt_profiles.dat"
+#define BT_PROFILES_MAGIC 0x59315052 /* "Y1PR" */
+
+struct y1_bt_eq_profile {
+    uint8_t bdaddr[6];
+    bool eq_enabled;
+    unsigned int eq_precut;
+    struct eq_band_setting eq_bands[EQ_NUM_BANDS];
+    int volume_limit;
+};
+
+static bool wired_eq_saved = false;
+static bool wired_eq_enabled = false;
+static unsigned int wired_eq_precut = 0;
+static struct eq_band_setting wired_eq_bands[EQ_NUM_BANDS];
+
+static void y1_eq_apply_settings(void)
+{
+    dsp_eq_enable(global_settings.eq_enabled);
+    dsp_set_eq_precut(global_settings.eq_precut);
+    for (int i = 0; i < EQ_NUM_BANDS; i++)
+        dsp_set_eq_coefs(i, &global_settings.eq_band_settings[i]);
+}
+
+static bool bt_profile_load(const uint8_t bd[6], struct y1_bt_eq_profile *out)
+{
+    int fd = open(BT_PROFILES_PATH, O_RDONLY);
+    if (fd < 0)
+        return false;
+    uint32_t magic = 0, count = 0;
+    bool found = false;
+    if (read(fd, &magic, 4) == 4 && read(fd, &count, 4) == 4 &&
+        magic == BT_PROFILES_MAGIC)
+    {
+        for (uint32_t i = 0; i < count && i < 32; i++)
+        {
+            struct y1_bt_eq_profile p;
+            if (read(fd, &p, sizeof(p)) != sizeof(p))
+                break;
+            if (memcmp(p.bdaddr, bd, 6) == 0)
+            {
+                *out = p;
+                found = true;
+                break;
+            }
+        }
+    }
+    close(fd);
+    return found;
+}
+
+static void bt_profile_save(const struct y1_bt_eq_profile *prof)
+{
+    struct y1_bt_eq_profile all[32];
+    uint32_t count = 0;
+    int fd = open(BT_PROFILES_PATH, O_RDONLY);
+    if (fd >= 0)
+    {
+        uint32_t magic = 0, n = 0;
+        if (read(fd, &magic, 4) == 4 && read(fd, &n, 4) == 4 &&
+            magic == BT_PROFILES_MAGIC)
+        {
+            for (uint32_t i = 0; i < n && count < 32; i++)
+            {
+                if (read(fd, &all[count], sizeof(all[0])) == sizeof(all[0]))
+                    count++;
+            }
+        }
+        close(fd);
+    }
+
+    bool replaced = false;
+    for (uint32_t i = 0; i < count; i++)
+    {
+        if (memcmp(all[i].bdaddr, prof->bdaddr, 6) == 0)
+        {
+            all[i] = *prof;
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced && count < 32)
+        all[count++] = *prof;
+
+    fd = open(BT_PROFILES_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd >= 0)
+    {
+        uint32_t magic = BT_PROFILES_MAGIC;
+        (void)!write(fd, &magic, 4);
+        (void)!write(fd, &count, 4);
+        (void)!write(fd, all, count * sizeof(all[0]));
+        close(fd);
+    }
+}
+
+void y1_output_profile_save_current(void)
+{
+    if (!global_settings.output_profiles_enabled ||
+        !global_settings.output_profile_auto_remember)
+        return;
+
+    uint8_t bd[6];
+    if (bt_audio_active && y1_bt_get_active_bdaddr(bd))
+    {
+        struct y1_bt_eq_profile p;
+        memcpy(p.bdaddr, bd, 6);
+        p.eq_enabled = global_settings.eq_enabled;
+        p.eq_precut = global_settings.eq_precut;
+        memcpy(p.eq_bands, global_settings.eq_band_settings, sizeof(p.eq_bands));
+        p.volume_limit = global_settings.bt_volume_limit;
+        bt_profile_save(&p);
+    }
+    else
+    {
+        wired_eq_saved = true;
+        wired_eq_enabled = global_settings.eq_enabled;
+        wired_eq_precut = global_settings.eq_precut;
+        memcpy(wired_eq_bands, global_settings.eq_band_settings, sizeof(wired_eq_bands));
+    }
+}
+
+static void y1_output_profile_apply(bool is_bt)
+{
+    if (!global_settings.output_profiles_enabled)
+        return;
+
+    if (is_bt)
+    {
+        uint8_t bd[6];
+        struct y1_bt_eq_profile p;
+        if (y1_bt_get_active_bdaddr(bd) && bt_profile_load(bd, &p))
+        {
+            global_settings.eq_enabled = p.eq_enabled;
+            global_settings.eq_precut = p.eq_precut;
+            memcpy(global_settings.eq_band_settings, p.eq_bands, sizeof(p.eq_bands));
+            global_settings.bt_volume_limit = p.volume_limit;
+            y1_eq_apply_settings();
+        }
+    }
+    else if (wired_eq_saved)
+    {
+        global_settings.eq_enabled = wired_eq_enabled;
+        global_settings.eq_precut = wired_eq_precut;
+        memcpy(global_settings.eq_band_settings, wired_eq_bands, sizeof(wired_eq_bands));
+        y1_eq_apply_settings();
+    }
+}
+
 void y1_bt_process_pending_audio_events(void)
 {
     int pending = y1_bt_audio_pending_event;
@@ -672,9 +820,11 @@ void y1_bt_process_pending_audio_events(void)
     {
         if (!bt_audio_active)
         {
+            y1_output_profile_save_current();
             wired_saved_volume = global_status.volume;
             bt_audio_active = true;
         }
+        y1_output_profile_apply(true);
 
         int dev_vol = 0;
         if (global_settings.bt_connected_device_full_volume)
@@ -685,8 +835,10 @@ void y1_bt_process_pending_audio_events(void)
         else
         {
             dev_vol = y1_bt_get_active_device_volume();
-            if (dev_vol > 0)
-                dev_vol = 0;
+            int lim = global_settings.output_profiles_enabled
+                ? global_settings.bt_volume_limit : sound_max(SOUND_VOLUME);
+            if (dev_vol > lim)
+                dev_vol = lim;
             if (dev_vol < sound_min(SOUND_VOLUME))
                 dev_vol = sound_min(SOUND_VOLUME);
         }
@@ -711,9 +863,15 @@ void y1_bt_process_pending_audio_events(void)
     {
         if (bt_audio_active)
         {
+            y1_output_profile_save_current();
             bt_audio_active = false;
-            global_status.volume = wired_saved_volume;
-            sound_set_volume(wired_saved_volume);
+            y1_output_profile_apply(false);
+            int wvol = wired_saved_volume;
+            if (global_settings.output_profiles_enabled &&
+                wvol > global_settings.wired_volume_limit)
+                wvol = global_settings.wired_volume_limit;
+            global_status.volume = wvol;
+            sound_set_volume(wvol);
             status_save(false);
         }
 
@@ -1105,12 +1263,21 @@ void check_bootfile(bool do_rolo)
 void setvol(void)
 {
 #if defined(INNIOASIS_Y1)
-    if (y1_bt_a2dp_is_streaming())
+    uint8_t active_bt_mac[6];
+    if (y1_bt_get_active_bdaddr(active_bt_mac) || y1_bt_a2dp_is_streaming())
     {
-        /* Enforce max digital volume lock if connected device full volume is set */
-        if (global_settings.bt_connected_device_full_volume || global_status.volume > 0)
+        int lim = global_settings.output_profiles_enabled
+            ? global_settings.bt_volume_limit : sound_max(SOUND_VOLUME);
+        if (global_settings.bt_connected_device_full_volume)
             global_status.volume = 0;
+        else if (global_status.volume > lim)
+            global_status.volume = lim;
         y1_bt_store_active_volume(global_status.volume);
+    }
+    else if (global_settings.output_profiles_enabled &&
+             global_status.volume > global_settings.wired_volume_limit)
+    {
+        global_status.volume = global_settings.wired_volume_limit;
     }
 #endif
     sound_set_volume(global_status.volume);
@@ -1664,6 +1831,9 @@ void keyclick_click(bool rawbutton, int action)
     int button = action;
     static long last_button = BUTTON_NONE;
     bool do_beep = false;
+#if defined(INNIOASIS_Y1)
+    bool do_vibrate = false;
+#endif
 
     if (!rawbutton)
         get_action_statuscode(&button);
@@ -1705,19 +1875,61 @@ void keyclick_click(bool rawbutton, int action)
         }
 #endif
     }
+#if defined(INNIOASIS_Y1)
+    if (global_settings.keyclick_vibrate)
+    {
+        if (global_settings.keyclick_vibrate_repeat || !(button & BUTTON_REPEAT))
+        {
+            if (button != BUTTON_NONE && !(button & BUTTON_REL)
+                && !(button & (SYS_EVENT|BUTTON_MULTIMEDIA)))
+            {
+                do_vibrate = true;
+            }
+        }
+        else if ((button & BUTTON_REPEAT) && (last_button == BUTTON_NONE))
+        {
+            do_vibrate = true;
+        }
+#ifdef HAVE_SCROLLWHEEL
+        else if (button & (BUTTON_SCROLL_BACK | BUTTON_SCROLL_FWD))
+        {
+            do_vibrate = true;
+        }
+#endif
+    }
+#endif
     if (button&BUTTON_REPEAT)
         last_button = button;
     else
         last_button = BUTTON_NONE;
 
-    if (do_beep && keyclick_current_callback)
-        do_beep = keyclick_current_callback(action, keyclick_data);
+    if ((do_beep
+#if defined(INNIOASIS_Y1)
+         || do_vibrate
+#endif
+        ) && keyclick_current_callback)
+    {
+        bool allow = keyclick_current_callback(action, keyclick_data);
+        do_beep = do_beep && allow;
+#if defined(INNIOASIS_Y1)
+        do_vibrate = do_vibrate && allow;
+#endif
+    }
     keyclick_current_callback = NULL;
 
 #if defined(INNIOASIS_Y1)
     if (global_settings.keyclick_wheel_only &&
         !(button & (BUTTON_SCROLL_FWD | BUTTON_SCROLL_BACK)))
+    {
         do_beep = false;
+        do_vibrate = false;
+    }
+
+    if (do_vibrate)
+    {
+        extern void y1_vibrate(int ms);
+        y1_vibrate(global_settings.keyclick_vibrate_ms);
+    }
 #endif
 
     if (do_beep)

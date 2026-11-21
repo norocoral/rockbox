@@ -25,6 +25,9 @@
 enum playlist_viewer_result playlist_viewer(void);
 enum playlist_viewer_result playlist_viewer_ex(const char* filename,
                                                int* most_recent_selection);
+#ifdef INNIOASIS_Y1
+bool playlist_viewer_ipod_catalog(void);
+#endif
 bool search_playlist(void);
 
 enum playlist_viewer_result {

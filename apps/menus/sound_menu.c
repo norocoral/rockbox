@@ -174,6 +174,41 @@ static int timestretch_callback(int action,
 }
     MENUITEM_SETTING(timestretch_enabled,
                      &global_settings.timestretch_enabled, timestretch_callback);
+    MENUITEM_SETTING(timestretch_algorithm,
+                     &global_settings.timestretch_algorithm, NULL);
+    MAKE_MENU(timestretch_menu, ID2P(LANG_TIMESTRETCH), NULL, Icon_NOICON,
+              &timestretch_enabled, &timestretch_algorithm);
+#endif
+#ifdef INNIOASIS_Y1
+    static int output_profile_vol_limit_callback(int action,
+                                                 const struct menu_item_ex *this_item,
+                                                 struct gui_synclist *this_list)
+    {
+        (void)this_item;
+        (void)this_list;
+        if (action == ACTION_EXIT_MENUITEM)
+        {
+            extern void y1_output_profile_save_current(void);
+            y1_output_profile_save_current();
+            setvol();
+        }
+        return action;
+    }
+
+    MENUITEM_SETTING(output_profiles_enabled,
+                     &global_settings.output_profiles_enabled, NULL);
+    MENUITEM_SETTING(output_profile_auto_remember,
+                     &global_settings.output_profile_auto_remember, NULL);
+    MENUITEM_SETTING(wired_volume_limit,
+                     &global_settings.wired_volume_limit,
+                     output_profile_vol_limit_callback);
+    MENUITEM_SETTING(bt_volume_limit,
+                     &global_settings.bt_volume_limit,
+                     output_profile_vol_limit_callback);
+    MAKE_MENU(output_profiles_menu, ID2P(LANG_Y1_OUTPUT_PROFILES), NULL,
+              Icon_NOICON, &output_profiles_enabled,
+              &output_profile_auto_remember, &wired_volume_limit,
+              &bt_volume_limit);
 #endif
 
     MENUITEM_SETTING(dithering_enabled,
@@ -265,9 +300,12 @@ MAKE_MENU(sound_settings, ID2P(LANG_SOUND_SETTINGS), NULL, Icon_Audio,
           ,&crossfeed_menu, &equalizer_menu, &dithering_enabled
           ,&surround_menu, &pbe_menu, &afr_enabled
 #ifdef HAVE_PITCHCONTROL
-          ,&timestretch_enabled
+          ,&timestretch_menu
 #endif
           ,&compressor_menu
+#ifdef INNIOASIS_Y1
+          ,&output_profiles_menu
+#endif
 #ifdef HAVE_SPEAKER
          ,&speaker_mode
 #endif

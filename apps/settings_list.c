@@ -492,6 +492,15 @@ static const char graphic_numeric[] = "graphic,numeric";
 #else
 #define DEFAULT_BACKLIGHT_TIMEOUT 15
 #endif
+#if defined(INNIOASIS_Y1) && LCD_DEPTH == 16
+static void y1_rendering_changed(bool unused)
+{
+    (void)unused;
+    lcd_set_rendering_options(global_settings.y1_aa_image,
+                              global_settings.y1_aa_text,
+                              global_settings.y1_transparency_plus);
+}
+#endif
 #endif /* HAVE_BACKLIGHT */
 
 #if defined(HAVE_USB_CHARGING_ENABLE)
@@ -1322,6 +1331,22 @@ const struct settings_list settings[] = {
                   .formatter = NULL, .get_talk_id = NULL }}}},
 #endif
 #ifdef HAVE_BACKLIGHT
+#ifdef INNIOASIS_Y1
+    TABLE_SETTING_LIST(F_TIME_SETTING | F_ALLOW_ARBITRARY_VALS,
+                    backlight_timeout, LANG_BACKLIGHT,
+                    DEFAULT_BACKLIGHT_TIMEOUT, "backlight timeout",
+                    off_on, UNIT_SEC, formatter_time_unit_0_is_always,
+                    getlang_time_unit_0_is_always, backlight_set_timeout,
+                    22, &timeout_sec_common[1]),
+#if CONFIG_CHARGING
+    TABLE_SETTING_LIST(F_TIME_SETTING | F_ALLOW_ARBITRARY_VALS,
+                    backlight_timeout_plugged, LANG_BACKLIGHT_ON_WHEN_CHARGING,
+                    DEFAULT_BACKLIGHT_TIMEOUT, "backlight timeout plugged",
+                    off_on, UNIT_SEC, formatter_time_unit_0_is_always,
+                    getlang_time_unit_0_is_always, backlight_set_timeout_plugged,
+                    22, &timeout_sec_common[1]),
+#endif
+#else
     TABLE_SETTING_LIST(F_TIME_SETTING | F_ALLOW_ARBITRARY_VALS,
                     backlight_timeout, LANG_BACKLIGHT,
                     DEFAULT_BACKLIGHT_TIMEOUT, "backlight timeout",
@@ -1335,6 +1360,7 @@ const struct settings_list settings[] = {
                     off_on, UNIT_SEC, formatter_time_unit_0_is_always,
                     getlang_time_unit_0_is_always, backlight_set_timeout_plugged,
                     23, timeout_sec_common),
+#endif
 #endif
 #endif /* HAVE_BACKLIGHT */
 #ifdef HAVE_LCD_INVERT
@@ -1381,6 +1407,9 @@ const struct settings_list settings[] = {
     INT_SETTING(F_THEMESETTING, scrollbar_width, LANG_SCROLLBAR_WIDTH, 6,
                 "scrollbar width",UNIT_INT, 3, MAX(LCD_WIDTH/10,25), 1,
                 NULL, NULL, NULL),
+    OFFON_SETTING(F_THEMESETTING, scrollbar_track_only,
+                  LANG_SCROLLBAR_TRACK_ONLY, false,
+                  "scrollbar track only", NULL),
 #ifdef HAVE_TOUCHSCREEN
     TABLE_SETTING(F_THEMESETTING|F_ALLOW_ARBITRARY_VALS, list_line_padding, LANG_LIST_LINE_PADDING,
                   -1, "list padding", "auto,off", UNIT_PIXEL, list_pad_formatter,
@@ -1407,6 +1436,10 @@ const struct settings_list settings[] = {
     CHOICE_SETTING(0, timeformat, LANG_TIMEFORMAT, 0,
         "time format", "24hour,12hour", NULL, 2,
         ID2P(LANG_24_HOUR_CLOCK), ID2P(LANG_12_HOUR_CLOCK)),
+    CHOICE_SETTING(0, date_format, LANG_DATE_FORMAT, 0,
+        "date format", "ymd,mdy,dmy,text", NULL, 4,
+        ID2P(LANG_DATE_FORMAT_YMD), ID2P(LANG_DATE_FORMAT_MDY),
+        ID2P(LANG_DATE_FORMAT_DMY), ID2P(LANG_DATE_FORMAT_TEXT)),
     OFFON_SETTING(0,show_icons, LANG_SHOW_ICONS ,true,"show icons", NULL),
     /* system */
     INT_SETTING(F_TIME_SETTING, poweroff, LANG_POWEROFF_IDLE, 10,
@@ -2091,6 +2124,11 @@ const struct settings_list settings[] = {
     /* timestretch */
     OFFON_SETTING(F_SOUNDSETTING, timestretch_enabled, LANG_TIMESTRETCH, false,
                   "timestretch enabled", dsp_timestretch_enable),
+    CHOICE_SETTING(F_SOUNDSETTING, timestretch_algorithm,
+                   LANG_TIMESTRETCH_ALGO, 0,
+                   "timestretch algorithm", "wsola,tdhs",
+                   dsp_set_timestretch_algorithm, 2,
+                   ID2P(LANG_TIMESTRETCH_WSOLA), ID2P(LANG_TIMESTRETCH_TDHS)),
 #endif
 
     /* compressor */
@@ -2309,7 +2347,7 @@ const struct settings_list settings[] = {
     TEXT_SETTING(F_THEMESETTING|F_NEEDAPPLY,rsbs_file, "rsbs",
                      DEFAULT_SBSNAME, SBS_DIR "/", ".rsbs"),
 #endif
-    TEXT_SETTING(0,lang_file,"lang","",LANG_DIR "/",".lng"),
+    TEXT_SETTING(0,lang_file,"lang","english-us",LANG_DIR "/",".lng"),
 #if LCD_DEPTH > 1
     TEXT_SETTING(F_THEMESETTING|F_NEEDAPPLY,backdrop_file,"backdrop",
                      DEFAULT_BACKDROP, NULL, NULL),
@@ -2393,6 +2431,12 @@ const struct settings_list settings[] = {
 #if defined(INNIOASIS_Y1) && LCD_DEPTH == 16
     OFFON_SETTING(0, navigation_fade, LANG_NAVIGATION_FADE, true,
                   "navigation fade", NULL),
+    OFFON_SETTING(0, y1_aa_image, LANG_Y1_AA_IMAGE, true,
+                  "antialiasing image", y1_rendering_changed),
+    OFFON_SETTING(0, y1_aa_text, LANG_Y1_AA_TEXT, true,
+                  "antialiasing text", y1_rendering_changed),
+    OFFON_SETTING(0, y1_transparency_plus, LANG_Y1_TRANSPARENCY_PLUS, true,
+                  "transparency plus", y1_rendering_changed),
 #endif
 #ifdef HAVE_ALBUMART
     OFFON_SETTING(0, dynamic_colors, LANG_DYNAMIC_COLORS, true,
@@ -2459,6 +2503,10 @@ const struct settings_list settings[] = {
     INT_SETTING(F_TIME_SETTING, sleeptimer_duration, LANG_SLEEP_TIMER_DURATION,
                 30, "sleeptimer duration", UNIT_MIN, 5, 300, 5,
                 NULL, NULL, NULL),
+    INT_SETTING(F_TIME_SETTING, sleeptimer_fadeout, LANG_SLEEP_TIMER_FADEOUT,
+                5, "sleeptimer fadeout", UNIT_MIN, 0, 5, 1,
+                formatter_time_unit_0_is_off, getlang_time_unit_0_is_off,
+                set_sleeptimer_fadeout),
     OFFON_SETTING(0, sleeptimer_on_startup, LANG_SLEEP_TIMER_ON_POWER_UP, false,
                   "sleeptimer on startup", NULL),
     OFFON_SETTING(0, keypress_restarts_sleeptimer, LANG_KEYPRESS_RESTARTS_SLEEP_TIMER, false,
@@ -2710,6 +2758,26 @@ const struct settings_list settings[] = {
                   true,
                   "keyclick list edge",
                   NULL),
+    OFFON_SETTING(0,
+                  keyclick_vibrate,
+                  LANG_Y1_VIBRATE_ENABLED,
+                  false,
+                  "keyclick vibrate",
+                  NULL),
+    INT_SETTING(0,
+                keyclick_vibrate_ms,
+                LANG_Y1_VIBRATE_MS,
+                15,
+                "keyclick vibrate ms",
+                UNIT_MS,
+                1, 100, 1,
+                NULL, NULL, NULL),
+    OFFON_SETTING(0,
+                  keyclick_vibrate_repeat,
+                  LANG_Y1_VIBRATE_REPEAT,
+                  false,
+                  "keyclick vibrate repeat",
+                  NULL),
     TEXT_SETTING(0,
                  keyclick_custom_sound,
                  "keyclick custom sound",
@@ -2803,6 +2871,34 @@ const struct settings_list settings[] = {
                   false,
                   "bt connected device full volume",
                   NULL),
+    OFFON_SETTING(0,
+                  output_profiles_enabled,
+                  LANG_Y1_OUTPUT_PROFILES,
+                  true,
+                  "output profiles",
+                  NULL),
+    OFFON_SETTING(0,
+                  output_profile_auto_remember,
+                  LANG_Y1_AUTO_REMEMBER,
+                  true,
+                  "output profile auto remember",
+                  NULL),
+    INT_SETTING(F_NO_WRAP,
+                wired_volume_limit,
+                LANG_Y1_WIRED_VOL_LIMIT,
+                6,
+                "wired volume limit",
+                UNIT_DB,
+                -74, 6, 1,
+                NULL, NULL, NULL),
+    INT_SETTING(F_NO_WRAP,
+                bt_volume_limit,
+                LANG_Y1_BT_VOL_LIMIT,
+                6,
+                "bt volume limit",
+                UNIT_DB,
+                -74, 6, 1,
+                NULL, NULL, NULL),
     OFFON_SETTING(0,
                   y1_modern_scheme,
                   LANG_Y1_MODERN_SCHEME,

@@ -433,126 +433,6 @@ static int miscscrn(void * param)
 }
 
 
-#if defined(INNIOASIS_Y1)
-struct ipod_pl_browser_ctx {
-    int ipod_count;
-    bool has_file_pl;
-};
-
-static bool ipod_has_file_playlists(void)
-{
-    char dirpath[MAX_PATH];
-    catalog_get_directory(dirpath, sizeof(dirpath));
-    DIR *d = opendir(dirpath);
-    if (!d)
-        return false;
-
-    bool found = false;
-    struct dirent *entry;
-    while ((entry = readdir(d)) != NULL)
-    {
-        if (entry->d_name[0] == '.')
-            continue;
-        size_t len = strlen(entry->d_name);
-        if ((len > 4 && strcasecmp(&entry->d_name[len - 4], ".m3u") == 0) ||
-            (len > 5 && strcasecmp(&entry->d_name[len - 5], ".m3u8") == 0))
-        {
-            found = true;
-            break;
-        }
-    }
-    closedir(d);
-    return found;
-}
-
-static const char* native_ipod_pl_get_name(int selected_item, void *data,
-                                           char *buffer, size_t buffer_len)
-{
-    const struct ipod_pl_browser_ctx *ctx = (const struct ipod_pl_browser_ctx *)data;
-    if (ctx && ctx->has_file_pl && selected_item == ctx->ipod_count)
-    {
-        snprintf(buffer, buffer_len, "%s", str(LANG_Y1_FILE_PLAYLISTS));
-        return buffer;
-    }
-    const char *name = y1_ipod_native_playlist_name(selected_item);
-    snprintf(buffer, buffer_len, "%s", name ? name : "");
-    return buffer;
-}
-
-static bool native_ipod_playlists_browser(void)
-{
-    struct ipod_pl_browser_ctx ctx;
-    ctx.ipod_count = y1_ipod_native_playlist_count();
-    ctx.has_file_pl = ipod_has_file_playlists();
-    int total_items = ctx.ipod_count + (ctx.has_file_pl ? 1 : 0);
-
-    struct gui_synclist lists;
-    gui_synclist_init(&lists, native_ipod_pl_get_name, &ctx, false, 1, NULL);
-    gui_synclist_set_nb_items(&lists, total_items);
-    gui_synclist_set_title(&lists, str(LANG_PLAYLISTS), Icon_Playlist);
-    if (total_items > 0)
-        gui_synclist_select_item(&lists, 0);
-    gui_synclist_draw(&lists);
-
-    while (true)
-    {
-        int action;
-        if (list_do_action(CONTEXT_LIST, HZ / 2, &lists, &action))
-            continue;
-
-        if (action == ACTION_STD_OK && total_items > 0)
-        {
-            int sel = gui_synclist_get_sel_pos(&lists);
-            if (ctx.has_file_pl && sel == ctx.ipod_count)
-            {
-                if (catalog_view_playlists())
-                    return true;
-                gui_synclist_draw(&lists);
-                continue;
-            }
-
-            int ntracks = y1_ipod_native_playlist_track_count(sel);
-            char tmp_pl[] = ROCKBOX_DIR "/ipod_pl_view.m3u8";
-            int fd = open(tmp_pl, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-            if (fd >= 0)
-            {
-                for (int i = 0; i < ntracks; i++)
-                {
-                    const char *tpath = y1_ipod_native_playlist_track_path(sel, i);
-                    if (tpath && tpath[0])
-                        fdprintf(fd, "%s\n", tpath);
-                }
-                close(fd);
-
-                int viewer_sel = 0;
-                switch (playlist_viewer_ex(tmp_pl, &viewer_sel))
-                {
-                    case PLAYLIST_VIEWER_OK:
-                        return true;
-                    case PLAYLIST_VIEWER_CANCEL:
-                        gui_synclist_draw(&lists);
-                        break;
-                    case PLAYLIST_VIEWER_USB:
-                    case PLAYLIST_VIEWER_MAINMENU:
-                    default:
-                        return false;
-                }
-            }
-        }
-        else if (action == ACTION_STD_CANCEL ||
-                 action == ACTION_STD_MENU ||
-                 action == ACTION_TREE_STOP)
-        {
-            return false;
-        }
-        else if (default_event_handler(action) == SYS_USB_CONNECTED)
-        {
-            return false;
-        }
-    }
-}
-#endif
-
 static int playlist_view_catalog(void * param)
 {
     (void)param;
@@ -560,7 +440,7 @@ static int playlist_view_catalog(void * param)
 #if defined(INNIOASIS_Y1)
     if (y1_usb_get_ipod_mode() || y1_ipod_native_is_active())
     {
-        bool item_was_selected = native_ipod_playlists_browser();
+        bool item_was_selected = playlist_viewer_ipod_catalog();
         if (item_was_selected)
         {
             pop_current_activity_without_refresh();
@@ -1336,6 +1216,7 @@ void root_menu(void)
                 break;
 #ifdef HAVE_TAGCACHE
             case GO_TO_DBBROWSER:
+            case GO_TO_PICTUREFLOW:
 #endif
             case GO_TO_FILEBROWSER:
             case GO_TO_PLAYLISTS_SCREEN:

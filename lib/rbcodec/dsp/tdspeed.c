@@ -55,16 +55,44 @@ static struct tdspeed_state_s
 {
     struct dsp_proc_entry *this; /* this stage */
     int channels;           /* number of audio channels */
+    int algorithm;          /* TDSPEED_ALGO_WSOLA or TDSPEED_ALGO_TDHS */
     int32_t samplerate;     /* current samplerate of input data */
     int32_t factor;         /* stretch factor (perdecimille) */
     int32_t shift_max;      /* maximum displacement on a frame */
     int32_t src_step;       /* source window pace */
     int32_t dst_step;       /* destination window pace */
-    int32_t dst_order;      /* power of two for dst_step */
+    int32_t dst_order;      /* power of two for dst_step (TDHS) */
     int32_t ovl_shift;      /* overlap buffer frame shift */
     int32_t ovl_size;       /* overlap buffer used size */
     int32_t *ovl_buff[2];   /* overlap buffer (L+R) */
 } tdspeed_state;
+
+/* Raised-cosine (Hann) crossfade LUT in Q12 [0..4096]: 0.5*(1 - cos(pi*k/64)) */
+static const uint16_t wsola_hann_lut[65] = {
+       0,    2,   10,   22,   39,   61,   88,  120,
+     156,  197,  242,  291,  345,  403,  465,  531,
+     600,  673,  749,  828,  910,  995, 1083, 1172,
+    1264, 1358, 1453, 1550, 1648, 1747, 1847, 1948,
+    2048, 2148, 2249, 2349, 2448, 2546, 2643, 2738,
+    2832, 2924, 3013, 3101, 3186, 3268, 3347, 3423,
+    3496, 3565, 3631, 3693, 3751, 3805, 3854, 3899,
+    3940, 3976, 4008, 4035, 4057, 4074, 4086, 4094,
+    4096
+};
+
+static inline int32_t wsola_blend_samples(int32_t curr, int32_t prev,
+                                          int i, int dst_step)
+{
+    int32_t pos = (i << 12) / dst_step; /* Q6.6 across 0..64 */
+    int idx = pos >> 6;
+    if (idx >= 64)
+        return curr;
+    int frac = pos & 63;
+    int w0 = wsola_hann_lut[idx];
+    int w1 = wsola_hann_lut[idx + 1];
+    int w = w0 + (((w1 - w0) * frac) >> 6);
+    return (int32_t)((curr * (int64_t)w + prev * (int64_t)(4096 - w)) >> 12);
+}
 
 static int32_t *buffers[TDSPEED_NBUFFERS] = { NULL, NULL, NULL, NULL };
 
@@ -145,25 +173,41 @@ static bool tdspeed_update(int32_t samplerate, int32_t factor)
     if (factor < STRETCH_MIN || factor > STRETCH_MAX)
         return false;
 
-    st->dst_step = samplerate / MINFREQ;
+    if (st->algorithm == TDSPEED_ALGO_WSOLA)
+    {
+        st->dst_step = samplerate / 85; /* ~11.8 ms overlap window */
+        if (st->dst_step < 16)
+            st->dst_step = 16;
+        st->dst_order = 0;
+        st->src_step = (int32_t)((int64_t)st->dst_step * factor / PITCH_SPEED_100);
+        if (st->src_step < 1)
+            st->src_step = 1;
+        st->shift_max = (st->dst_step * 3) / 4;
+        if (st->shift_max < 8)
+            st->shift_max = 8;
+    }
+    else
+    {
+        st->dst_step = samplerate / MINFREQ;
 
-    if (factor > PITCH_SPEED_100)
-        st->dst_step = st->dst_step * PITCH_SPEED_100 / factor;
+        if (factor > PITCH_SPEED_100)
+            st->dst_step = st->dst_step * PITCH_SPEED_100 / factor;
 
-    st->dst_order = 1;
+        st->dst_order = 1;
 
-    while (st->dst_step >>= 1)
-        st->dst_order++;
+        while (st->dst_step >>= 1)
+            st->dst_order++;
 
-    st->dst_step = (1 << st->dst_order);
+        st->dst_step = (1 << st->dst_order);
 #ifdef CPU_COLDFIRE
-    /* blend_frame_samples works in s0.31 mode. Also must shift by
-       one less bit before mac in order not to overflow. */
-    st->dst_order = 30 - st->dst_order;
+        /* blend_frame_samples works in s0.31 mode. Also must shift by
+           one less bit before mac in order not to overflow. */
+        st->dst_order = 30 - st->dst_order;
 #endif
-    st->src_step = st->dst_step * factor / PITCH_SPEED_100;
-    st->shift_max = (st->dst_step > st->src_step) ?
-                        st->dst_step : st->src_step;
+        st->src_step = st->dst_step * factor / PITCH_SPEED_100;
+        st->shift_max = (st->dst_step > st->src_step) ?
+                            st->dst_step : st->src_step;
+    }
 
     st->ovl_buff[0] = overlap_buffer[0];
     st->ovl_buff[1] = overlap_buffer[1]; /* ignored if mono */
@@ -178,7 +222,12 @@ static int tdspeed_apply(int32_t *buf_out[2], int32_t *buf_in[2],
     struct tdspeed_state_s *const st = &tdspeed_state;
     int32_t src_frame_sz = st->shift_max + st->dst_step;
 
-    if (st->dst_step > st->src_step)
+    if (st->algorithm == TDSPEED_ALGO_WSOLA)
+    {
+        if (st->dst_step + st->shift_max > st->src_step)
+            src_frame_sz += st->dst_step + st->shift_max - st->src_step;
+    }
+    else if (st->dst_step > st->src_step)
         src_frame_sz += st->dst_step - st->src_step;
 
     int32_t *dest[2];
@@ -260,59 +309,143 @@ static int tdspeed_apply(int32_t *buf_out[2], int32_t *buf_in[2],
     /* process all complete frames */
     while (data_len - next_frame >= src_frame_sz)
     {
-        /* find frame overlap by autocorelation */
-        int const INC1 = 8;
-        int const INC2 = 32;
-
-        int64_t min_delta = INT64_MAX;  /* most positive */
         int shift = 0;
 
         assert(next_frame + st->shift_max - 1 + st->dst_step <= data_len);
         assert(prev_frame + st->dst_step <= data_len);
 
-        for (int i = 0; i < st->shift_max; i += INC1)
+        if (st->algorithm == TDSPEED_ALGO_WSOLA)
         {
-            int64_t delta = 0;
+            /* Stage 1: coarse correlation search (4-sample step) */
+            int64_t min_delta = INT64_MAX;
+            int coarse_best = 0;
 
+            for (int i = 0; i < st->shift_max; i += 4)
+            {
+                int64_t delta = 0;
+
+                for (int ch = 0; ch < st->channels; ch++)
+                {
+                    int32_t *curr = buf_in[ch] + next_frame + i;
+                    int32_t *prev = buf_in[ch] + prev_frame;
+
+                    for (int j = 0; j < st->dst_step;
+                         j += 8, curr += 8, prev += 8)
+                    {
+                        delta += ad_s32(*curr, *prev);
+
+                        if (delta >= min_delta)
+                            goto wsola_coarse_skip;
+                    }
+                }
+
+                min_delta = delta;
+                coarse_best = i;
+wsola_coarse_skip:;
+            }
+
+            /* Stage 2: 1-sample fine refinement around coarse_best */
+            int lo = coarse_best - 3;
+            int hi = coarse_best + 3;
+            if (lo < 0)
+                lo = 0;
+            if (hi >= st->shift_max)
+                hi = st->shift_max - 1;
+
+            min_delta = INT64_MAX;
+            shift = coarse_best;
+            for (int i = lo; i <= hi; i++)
+            {
+                int64_t delta = 0;
+
+                for (int ch = 0; ch < st->channels; ch++)
+                {
+                    int32_t *curr = buf_in[ch] + next_frame + i;
+                    int32_t *prev = buf_in[ch] + prev_frame;
+
+                    for (int j = 0; j < st->dst_step;
+                         j += 4, curr += 4, prev += 4)
+                    {
+                        delta += ad_s32(*curr, *prev);
+
+                        if (delta >= min_delta)
+                            goto wsola_fine_skip;
+                    }
+                }
+
+                min_delta = delta;
+                shift = i;
+wsola_fine_skip:;
+            }
+
+            /* Smooth raised-cosine (Hann) overlap-add crossfade */
             for (int ch = 0; ch < st->channels; ch++)
             {
-                int32_t *curr = buf_in[ch] + next_frame + i;
+                int32_t *curr = buf_in[ch] + next_frame + shift;
                 int32_t *prev = buf_in[ch] + prev_frame;
+                int32_t *d = dest[ch];
 
-                for (int j = 0; j < st->dst_step;
-                     j += INC2, curr += INC2, prev += INC2)
+                for (int i = 0; i < st->dst_step; i++)
                 {
-                    delta += ad_s32(*curr, *prev);
-
-                    if (delta >= min_delta)
-                        goto skip;
+                    assert(d < buf_out[ch] + out_size);
+                    *d++ = wsola_blend_samples(*curr++, *prev++, i, st->dst_step);
                 }
-            }
 
-            min_delta = delta;
-            shift = i;
-skip:;
+                dest[ch] = d;
+            }
         }
-
-        /* overlap fading-out previous frame with fading-in current frame */
-        for (int ch = 0; ch < st->channels; ch++)
+        else
         {
-            int32_t *curr = buf_in[ch] + next_frame + shift;
-            int32_t *prev = buf_in[ch] + prev_frame;
-            int32_t *d = dest[ch];
+            /* TDHS: find frame overlap by autocorelation */
+            int const INC1 = 8;
+            int const INC2 = 32;
 
-            assert(next_frame + shift + st->dst_step <= data_len);
-            assert(prev_frame + st->dst_step <= data_len);
-            assert(dest[ch] - buf_out[ch] + st->dst_step <= out_size);
+            int64_t min_delta = INT64_MAX;  /* most positive */
 
-            for (int i = 0, j = st->dst_step; j; i++, j--)
+            for (int i = 0; i < st->shift_max; i += INC1)
             {
-                assert(d < buf_out[ch] + out_size);
-                *d++ = blend_frame_samples(*curr++, *prev++, i, j,
-                                           st->dst_order);
+                int64_t delta = 0;
+
+                for (int ch = 0; ch < st->channels; ch++)
+                {
+                    int32_t *curr = buf_in[ch] + next_frame + i;
+                    int32_t *prev = buf_in[ch] + prev_frame;
+
+                    for (int j = 0; j < st->dst_step;
+                         j += INC2, curr += INC2, prev += INC2)
+                    {
+                        delta += ad_s32(*curr, *prev);
+
+                        if (delta >= min_delta)
+                            goto skip;
+                    }
+                }
+
+                min_delta = delta;
+                shift = i;
+skip:;
             }
 
-            dest[ch] = d;
+            /* overlap fading-out previous frame with fading-in current frame */
+            for (int ch = 0; ch < st->channels; ch++)
+            {
+                int32_t *curr = buf_in[ch] + next_frame + shift;
+                int32_t *prev = buf_in[ch] + prev_frame;
+                int32_t *d = dest[ch];
+
+                assert(next_frame + shift + st->dst_step <= data_len);
+                assert(prev_frame + st->dst_step <= data_len);
+                assert(dest[ch] - buf_out[ch] + st->dst_step <= out_size);
+
+                for (int i = 0, j = st->dst_step; j; i++, j--)
+                {
+                    assert(d < buf_out[ch] + out_size);
+                    *d++ = blend_frame_samples(*curr++, *prev++, i, j,
+                                               st->dst_order);
+                }
+
+                dest[ch] = d;
+            }
         }
 
         /* adjust pointers for next frame */
@@ -413,6 +546,28 @@ void dsp_set_timestretch(int32_t percent)
 int32_t dsp_get_timestretch(void)
 {
     return tdspeed_state.factor;
+}
+
+void dsp_set_timestretch_algorithm(int algo)
+{
+    struct tdspeed_state_s *st = &tdspeed_state;
+    if (algo != TDSPEED_ALGO_TDHS)
+        algo = TDSPEED_ALGO_WSOLA;
+    if (st->algorithm == algo)
+        return;
+
+    st->algorithm = algo;
+    if (st->this)
+    {
+        st->samplerate = 0;
+        dsp_proc_want_format_update(dsp_get_config(CODEC_IDX_AUDIO),
+                                    DSP_PROC_TIMESTRETCH);
+    }
+}
+
+int dsp_get_timestretch_algorithm(void)
+{
+    return tdspeed_state.algorithm;
 }
 
 /* Return whether or not timestretch is enabled and initialized */

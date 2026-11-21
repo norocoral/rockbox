@@ -1605,7 +1605,7 @@ static const struct hotkey_assignment hotkey_items[] = {
       .lang_id = LANG_ONPLAY_PICTUREFLOW,
       .func = HOTKEY_FUNC(hotkey_tree_run_plugin, (void *)"pictureflow"),
       .return_code = ONPLAY_FUNC_RETURN,
-      .flags = HOTKEY_FLAG_TREE,
+      .flags = HOTKEY_FLAG_WPS | HOTKEY_FLAG_TREE,
       .icon = Icon_Plugin},
 #endif
 };
