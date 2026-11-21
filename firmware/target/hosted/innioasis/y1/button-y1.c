@@ -71,7 +71,17 @@ extern void backlight_on(void);
 
 void y1_set_menu_nav_mode(bool nav_mode)
 {
-    y1_menu_nav_mode = nav_mode && !is_keys_locked();
+    bool next = nav_mode && !is_keys_locked();
+    if (y1_menu_nav_mode != next)
+    {
+        extern void button_clear_stuck_bitmap(void);
+        y1_menu_nav_mode = next;
+        menu_is_down = false;
+        menu_click_count = 0;
+        menu_double_clicked = false;
+        menu_long_press_fired = false;
+        button_clear_stuck_bitmap();
+    }
 }
 
 static void y1_kmsg_log(const char *msg)
@@ -300,22 +310,21 @@ bool button_handle_key_event(int keycode, int value, bool is_accdet)
         }
         else if (value == 0) /* Key UP */
         {
-            if (menu_is_down)
+            if (!menu_is_down)
+                return false;
+            menu_is_down = false;
+            menu_release_tick = now;
+            if (menu_double_clicked)
             {
-                menu_is_down = false;
-                menu_release_tick = now;
-                if (menu_double_clicked)
-                {
-                    menu_double_clicked = false;
-                    return true;
-                }
-                if (menu_long_press_fired)
-                {
-                    menu_long_press_fired = false;
-                    menu_click_count = 0;
-                    button_queue_post(BUTTON_MENU | BUTTON_REL, 0);
-                    return true;
-                }
+                menu_double_clicked = false;
+                return true;
+            }
+            if (menu_long_press_fired)
+            {
+                menu_long_press_fired = false;
+                menu_click_count = 0;
+                button_queue_post(BUTTON_MENU | BUTTON_REL, 0);
+                return true;
             }
             return true;
         }
@@ -366,6 +375,10 @@ bool button_handle_key_event(int keycode, int value, bool is_accdet)
 
     if (!is_mfb_short && !is_mfb_long)
         return false;
+
+    /* Keep CPU awake through the 400ms multi-click / hold detection window
+     * even when the screen is off, without waking the display. */
+    y1_power_set_idle_sleep(false);
 
     long now = current_tick;
 
@@ -519,5 +532,10 @@ bool headphones_inserted(void)
 
 void y1_set_touch_scanning(bool enabled)
 {
+    if (!enabled)
+    {
+        extern void button_clear_stuck_bitmap(void);
+        button_clear_stuck_bitmap();
+    }
     y1_input_set_touch_scanning(enabled);
 }

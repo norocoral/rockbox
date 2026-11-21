@@ -368,6 +368,7 @@ static const struct plugin_api rockbox_api = {
     gui_synclist_do_button,
     gui_synclist_set_title,
     gui_synclist_scroll_stop,
+    list_do_action,
     gui_syncyesno_run,
     simplelist_info_init,
     simplelist_show_list,
@@ -731,9 +732,9 @@ static const struct plugin_api rockbox_api = {
     tagcache_commit_finalize,
 #if defined(HAVE_TC_RAMCACHE)
     tagcache_is_in_ram,
-#if defined(HAVE_DIRCACHE)
+#if defined(HAVE_DIRCACHE) || defined(INNIOASIS_Y1)
     tagcache_fill_tags,
-#endif /* HAVE_DIRCACHE */
+#endif /* HAVE_DIRCACHE || INNIOASIS_Y1 */
 #endif /* HAVE_TC_RAMCACHE */
 #endif /* HAVE_TAGCACHE */
 

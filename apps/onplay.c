@@ -271,9 +271,10 @@ MAKE_ONPLAYMENU( wps_playlist_menu, ID2P(LANG_CURRENT_PLAYLIST),
                );
 
 /* argument for add_to_playlist (for use by menu callbacks) */
-#define PL_NONE    0x00
-#define PL_QUEUE   0x01
-#define PL_REPLACE 0x02
+#define PL_NONE     0x00
+#define PL_QUEUE    0x01
+#define PL_REPLACE  0x02
+#define PL_TAKEOVER 0x04
 struct add_to_pl_param
 {
     int8_t position;
@@ -292,8 +293,8 @@ static struct add_to_pl_param addtopl_queue_last       = {PLAYLIST_INSERT_LAST, 
 static struct add_to_pl_param addtopl_queue_shuf       = {PLAYLIST_INSERT_SHUFFLED, PL_QUEUE};
 static struct add_to_pl_param addtopl_queue_last_shuf  = {PLAYLIST_INSERT_LAST_SHUFFLED, PL_QUEUE};
 
-static struct add_to_pl_param addtopl_replace          = {PLAYLIST_INSERT, PL_REPLACE};
-static struct add_to_pl_param addtopl_replace_shuffled = {PLAYLIST_INSERT_LAST_SHUFFLED, PL_REPLACE};
+static struct add_to_pl_param addtopl_replace          = {PLAYLIST_INSERT_LAST, PL_REPLACE | PL_TAKEOVER};
+static struct add_to_pl_param addtopl_replace_shuffled = {PLAYLIST_INSERT_LAST, PL_REPLACE | PL_TAKEOVER};
 
 static void op_playlist_insert_selected(int position, bool queue)
 {
@@ -347,7 +348,8 @@ static int add_to_playlist(void* arg)
 
     splash(0, ID2P(LANG_WAIT));
 
-    if (new_playlist && global_settings.keep_current_track_on_replace_playlist)
+    if (new_playlist && !(param->flags & PL_TAKEOVER) &&
+        global_settings.keep_current_track_on_replace_playlist)
     {
         if (audio_status() & AUDIO_STATUS_PLAY)
         {

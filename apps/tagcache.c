@@ -822,6 +822,31 @@ static long find_entry_ram(const char *filename)
     static long last_pos = 0;
     struct dircache_fileref dcfref;
 
+#ifdef INNIOASIS_Y1
+    if (tc_stat.ramcache && tcramcache.hdr && y1_ipod_native_is_active())
+    {
+        tcrc_buffer_lock();
+        int count = current_tcmh.tch.entry_count;
+        for (int i = 0; i < count; i++)
+        {
+            if (tcramcache.hdr->indices[i].flag & FLAG_DELETED)
+                continue;
+            int32_t seek = tcramcache.hdr->indices[i].tag_seek[tag_filename];
+            if (seek < 0)
+                continue;
+            struct tagfile_entry *ep =
+                (struct tagfile_entry *)&tcramcache.hdr->tags[tag_filename][seek];
+            if (strcasecmp(ep->tag_data, filename) == 0)
+            {
+                tcrc_buffer_unlock();
+                return i;
+            }
+        }
+        tcrc_buffer_unlock();
+        return -1;
+    }
+#endif
+
     /* Check if tagcache is loaded into ram. */
     if (!tc_stat.ramcache
         || global_settings.tagcache_ram != TAGCACHE_RAM_ON)
@@ -1166,7 +1191,11 @@ static bool retrieve(struct tagcache_search *tcs, IF_DIRCACHE(int idx_id,)
         }
         else
 #endif /* HAVE_DIRCACHE */
+#ifdef INNIOASIS_Y1
+        if (tag != tag_filename || y1_ipod_native_is_active())
+#else
         if (tag != tag_filename)
+#endif
         {
             struct tagfile_entry *ep =
                 (struct tagfile_entry *)&tcramcache.hdr->tags[tag][seek];
@@ -1994,7 +2023,11 @@ static bool get_next(struct tagcache_search *tcs, bool is_numeric, char *buf, lo
         }
 #endif /* HAVE_DIRCACHE */
 
+#ifdef INNIOASIS_Y1
+        if (tcs->type != tag_filename || y1_ipod_native_is_active())
+#else
         if (tcs->type != tag_filename)
+#endif
         {
             struct tagfile_entry *ep;
 
@@ -2212,6 +2245,122 @@ bool tagcache_fill_tags(struct mp3entry *id3, const char *filename)
     return true;
 }
 #endif /* defined(HAVE_TC_RAMCACHE) && defined(HAVE_DIRCACHE) */
+
+#if defined(INNIOASIS_Y1) && defined(HAVE_TC_RAMCACHE)
+#ifndef HAVE_DIRCACHE
+static long y1_find_entry_ram(const char *filename)
+{
+    if (!tc_stat.ramcache || !tcramcache.hdr || !y1_ipod_native_is_active() || !filename)
+        return -1;
+
+    if (strncmp(filename, "/mnt/sdcard/", 12) == 0)
+        filename += 11;
+
+    tcrc_buffer_lock();
+    int count = current_tcmh.tch.entry_count;
+    for (int i = 0; i < count; i++)
+    {
+        if (tcramcache.hdr->indices[i].flag & FLAG_DELETED)
+            continue;
+        int32_t seek = tcramcache.hdr->indices[i].tag_seek[tag_filename];
+        if (seek < 0)
+            continue;
+        struct tagfile_entry *ep =
+            (struct tagfile_entry *)&tcramcache.hdr->tags[tag_filename][seek];
+        if (strcasecmp(ep->tag_data, filename) == 0)
+        {
+            tcrc_buffer_unlock();
+            return i;
+        }
+    }
+    tcrc_buffer_unlock();
+    return -1;
+}
+#endif
+
+bool tagcache_overlay_tags(struct mp3entry *id3)
+{
+    if (!id3 || !id3->path[0] || !tc_stat.ready || !tc_stat.ramcache ||
+        !y1_ipod_native_is_active())
+        return false;
+
+#ifdef HAVE_DIRCACHE
+    int idx_id = find_entry_ram(id3->path);
+#else
+    int idx_id = y1_find_entry_ram(id3->path);
+#endif
+    if (idx_id < 0)
+        return false;
+
+    tcrc_buffer_lock();
+    struct index_entry *entry = &tcramcache.hdr->indices[idx_id];
+    char *buf = id3->id3v2buf;
+    ssize_t remaining = sizeof(id3->id3v2buf);
+
+    /* Clear pointers into id3v2buf before overwriting it so untagged fields
+     * never dangle into the middle of newly copied strings. */
+    id3->title        = NULL;
+    id3->artist       = NULL;
+    id3->album        = NULL;
+    id3->genre_string = NULL;
+    id3->composer     = NULL;
+    id3->comment      = NULL;
+    id3->albumartist  = NULL;
+    id3->grouping     = NULL;
+
+#define OVERLAY_STR(x, y) do                                                   \
+    {                                                                          \
+        if (remaining > 0 && entry->tag_seek[y] >= 0)                          \
+        {                                                                      \
+            struct tagfile_entry *ep =                                         \
+                (struct tagfile_entry *)&tcramcache.hdr->tags[y][entry->tag_seek[y]]; \
+            if (strcmp(ep->tag_data, UNTAGGED) != 0)                           \
+            {                                                                  \
+                x = buf;                                                       \
+                size_t len = strlcpy(buf, ep->tag_data, remaining) + 1;        \
+                buf += len; remaining -= len;                                  \
+            }                                                                  \
+        }                                                                      \
+    } while(0)
+
+    OVERLAY_STR(id3->title,         tag_title);
+    OVERLAY_STR(id3->artist,        tag_artist);
+    OVERLAY_STR(id3->album,         tag_album);
+    OVERLAY_STR(id3->genre_string,  tag_genre);
+    OVERLAY_STR(id3->composer,      tag_composer);
+    OVERLAY_STR(id3->comment,       tag_comment);
+    OVERLAY_STR(id3->albumartist,   tag_albumartist);
+    OVERLAY_STR(id3->grouping,      tag_grouping);
+#undef OVERLAY_STR
+
+    long yr = entry->tag_seek[tag_year];
+    if (yr > 0) id3->year = yr;
+    long dn = entry->tag_seek[tag_discnumber];
+    if (dn > 0) id3->discnum = dn;
+    long tn = entry->tag_seek[tag_tracknumber];
+    if (tn > 0) id3->tracknum = tn;
+    id3->playcount  = entry->tag_seek[tag_playcount];
+    id3->rating     = entry->tag_seek[tag_rating];
+    id3->favorite   = entry->tag_seek[tag_favorite];
+    id3->lastplayed = entry->tag_seek[tag_lastplayed];
+    tcrc_buffer_unlock();
+    return true;
+}
+
+#ifndef HAVE_DIRCACHE
+bool tagcache_fill_tags(struct mp3entry *id3, const char *filename)
+{
+    if (!id3)
+        return false;
+    if (filename != NULL)
+    {
+        memset(id3, 0, sizeof(struct mp3entry));
+        strlcpy(id3->path, filename, sizeof(id3->path));
+    }
+    return tagcache_overlay_tags(id3);
+}
+#endif
+#endif /* defined(INNIOASIS_Y1) && defined(HAVE_TC_RAMCACHE) */
 
 static inline void write_item(const char *item)
 {

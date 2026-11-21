@@ -36,7 +36,22 @@
 
 /******************************* Globals ***********************************/
 static fb_data *lcd_fb;
+static int pf_fb_stride = LCD_WIDTH;
 static bool statusbar_theme_enabled;
+static int pf_sb_top = 0;
+
+#if defined(INNIOASIS_Y1) && defined(HAVE_LCD_COLOR)
+#define PF_ABC_OVERLAY_TICKS (2 * HZ)
+#define PF_ABC_RADIUS 26
+#define PF_ABC_FAST_WINDOW (HZ / 10)
+#define PF_ABC_REQUIRED_STREAK 12
+
+static char scroll_abc_overlay[5];
+static long scroll_abc_overlay_tick;
+static bool scroll_abc_overlay_visible;
+static long scroll_abc_last_wheel_tick;
+static int scroll_abc_fast_streak;
+#endif
 
 /*
  *  Targets which use plugin_get_audio_buffer() can't have playback from
@@ -154,10 +169,13 @@ const struct button_mapping pf_context_buttons[] =
     {PF_QUIT,         BUTTON_POWER,               BUTTON_NONE},
 #elif (CONFIG_KEYPAD == IPOD_1G2G_PAD) \
     || (CONFIG_KEYPAD == IPOD_3G_PAD) \
-    || (CONFIG_KEYPAD == IPOD_4G_PAD) \
-    || (CONFIG_KEYPAD == INNIOASIS_Y1_PAD)
+    || (CONFIG_KEYPAD == IPOD_4G_PAD)
     {PF_MENU,         BUTTON_MENU|BUTTON_REPEAT,  BUTTON_MENU},
     {PF_QUIT,         BUTTON_MENU|BUTTON_REL,     BUTTON_MENU},
+    {PF_SORTING_NEXT, BUTTON_SELECT|BUTTON_MENU,  BUTTON_NONE},
+    {PF_SORTING_PREV, BUTTON_SELECT|BUTTON_PLAY,  BUTTON_NONE},
+#elif CONFIG_KEYPAD == INNIOASIS_Y1_PAD
+    {PF_QUIT,         BUTTON_MENU,                BUTTON_NONE},
     {PF_SORTING_NEXT, BUTTON_SELECT|BUTTON_MENU,  BUTTON_NONE},
     {PF_SORTING_PREV, BUTTON_SELECT|BUTTON_PLAY,  BUTTON_NONE},
 #elif CONFIG_KEYPAD == MPIO_HD300_PAD
@@ -228,8 +246,18 @@ typedef unsigned char pix_t;
 #define N_PIX LCD_RGBPACK
 #define G_BRIGHT(y) LCD_RGBPACK(y,y,y)
 #define N_BRIGHT(y) LCD_RGBPACK(y,y,y)
-#define BUFFER_WIDTH LCD_WIDTH
-#define BUFFER_HEIGHT LCD_HEIGHT
+#ifdef INNIOASIS_Y1
+static int pf_lcd_width = LCD_WIDTH;
+static int pf_lcd_height = LCD_HEIGHT;
+#define PF_LCD_WIDTH  pf_lcd_width
+#define PF_LCD_HEIGHT pf_lcd_height
+#else
+#define PF_LCD_WIDTH  LCD_WIDTH
+#define PF_LCD_HEIGHT LCD_HEIGHT
+#endif
+
+#define BUFFER_WIDTH PF_LCD_WIDTH
+#define BUFFER_HEIGHT PF_LCD_HEIGHT
 typedef fb_data pix_t;
 #endif  /* LCD_DEPTH >= 8 */
 
@@ -268,17 +296,22 @@ static inline pix_t theme_brightness(int level)
 #define IANGLE_MAX 1024
 #define IANGLE_MASK 1023
 
-#define REFLECT_TOP (LCD_HEIGHT * 2 / 3)
-#define REFLECT_HEIGHT (LCD_HEIGHT - REFLECT_TOP)
+#define PF_TOP_PAD (pf_sb_top > 0 ? pf_sb_top : 16)
+#define PF_BOT_PAD (pf_sb_top > 0 ? 0 : 8)
+#define PF_AVAIL_HEIGHT (PF_LCD_HEIGHT - PF_TOP_PAD - PF_BOT_PAD)
+#define PF_Y_MID (PF_TOP_PAD + PF_AVAIL_HEIGHT / 2)
+#define REFLECT_TOP (PF_AVAIL_HEIGHT * 2 / 3)
+#define REFLECT_HEIGHT (PF_AVAIL_HEIGHT - REFLECT_TOP)
+#define MAX_REFLECT_HEIGHT (LCD_HEIGHT - (LCD_HEIGHT * 2 / 3))
 #define DISPLAY_HEIGHT REFLECT_TOP
-#define DISPLAY_WIDTH MAX((LCD_HEIGHT * LCD_PIXEL_ASPECT_HEIGHT / \
-    LCD_PIXEL_ASPECT_WIDTH / 2), (LCD_WIDTH * 2 / 5))
+#define DISPLAY_WIDTH MAX((PF_AVAIL_HEIGHT * LCD_PIXEL_ASPECT_HEIGHT / \
+    LCD_PIXEL_ASPECT_WIDTH / 2), (PF_LCD_WIDTH * 2 / 5))
 #define REFLECT_SC ((0x10000U * 3 + (REFLECT_HEIGHT * 5 - 1)) / \
     (REFLECT_HEIGHT * 5))
-#define DISPLAY_OFFS ((LCD_HEIGHT / 2) - REFLECT_HEIGHT)
-#define CAM_DIST MAX(MIN(LCD_HEIGHT,LCD_WIDTH),120)
+#define DISPLAY_OFFS ((PF_AVAIL_HEIGHT / 2) - REFLECT_HEIGHT)
+#define CAM_DIST MAX(MIN(PF_AVAIL_HEIGHT,PF_LCD_WIDTH),120)
 #define CAM_DIST_R (CAM_DIST << PFREAL_SHIFT)
-#define DISPLAY_LEFT_R (PFREAL_HALF - LCD_WIDTH * PFREAL_HALF)
+#define DISPLAY_LEFT_R (PFREAL_HALF - PF_LCD_WIDTH * PFREAL_HALF)
 #define MAXSLIDE_LEFT_R (PFREAL_HALF - DISPLAY_WIDTH * PFREAL_HALF)
 
 #define SLIDE_CACHE_SIZE 100
@@ -307,9 +340,9 @@ static inline pix_t theme_brightness(int level)
 #define ERROR_USER_ABORT    -4
 
 /* current version for cover cache */
-#define CACHE_VERSION 4
-#define CONFIG_VERSION 1
-#define CONFIG_FILE "pictureflow.cfg"
+#define CACHE_VERSION 6
+#define CONFIG_VERSION 3
+#define CONFIG_FILE ROCKBOX_DIR "/pictureflow.cfg"
 #define INDEX_HDR "PFID"
 
 /** structs we use */
@@ -526,7 +559,7 @@ static struct configdata config[] =
 {
     { TYPE_INT, 0, MAX_SPACING, { .int_p = &pf_cfg.slide_spacing }, "slide spacing",
       NULL },
-    { TYPE_INT, 0, MAX_MARGIN, { .int_p = &pf_cfg.center_margin }, "center margin",
+    { TYPE_INT, -40, MAX_MARGIN, { .int_p = &pf_cfg.center_margin }, "center margin",
       NULL },
     { TYPE_INT, 0, MAX_SLIDES_COUNT, { .int_p = &pf_cfg.num_slides }, "slides count",
       NULL },
@@ -562,7 +595,7 @@ static pix_t *buffer; /* for now it always points to the lcd framebuffer */
 #ifdef HAVE_LCD_COLOR
 static pix_t pf_fade_bg;
 #endif
-static uint8_t reflect_table[REFLECT_HEIGHT];
+static uint8_t reflect_table[MAX_REFLECT_HEIGHT];
 static struct slide_data center_slide;
 static struct slide_data left_slides[MAX_SLIDES_COUNT];
 static struct slide_data right_slides[MAX_SLIDES_COUNT];
@@ -728,8 +761,8 @@ static void config_save(int cache_version, bool update_albumart)
 
 static void config_set_defaults(struct pf_config_t *cfg)
 {
-     cfg->slide_spacing = DISPLAY_WIDTH / 4;
-     cfg->center_margin = (LCD_WIDTH - DISPLAY_WIDTH) / 12;
+     cfg->slide_spacing = DISPLAY_WIDTH / 5;
+     cfg->center_margin = -(DISPLAY_WIDTH / 10);
      cfg->num_slides = 4;
      cfg->zoom = 100;
      cfg->show_fps = false;
@@ -1046,10 +1079,10 @@ static void set_scroll_line(const char *str, enum pf_scroll_line_type type)
     s->step = 0;
     s->offset = 0;
     s->start_tick = *rb->current_tick + scroll_line_info.delay;
-    if (LCD_WIDTH - s->width < 0)
+    if (PF_LCD_WIDTH - s->width < 0)
         s->step = scroll_line_info.step;
     else
-        s->offset = (LCD_WIDTH - s->width) / 2;
+        s->offset = (PF_LCD_WIDTH - s->width) / 2;
 }
 
 static int get_scroll_line_offset(enum pf_scroll_line_type type)
@@ -1079,9 +1112,9 @@ static void update_scroll_lines(void)
                 s->step = scroll_line_info.step;
                 s->start_tick = *rb->current_tick + scroll_line_info.delay * 2;
             }
-            if (s->offset <= LCD_WIDTH - s->width) {
+            if (s->offset <= PF_LCD_WIDTH - s->width) {
                 /* at end of line */
-                s->offset = LCD_WIDTH - s->width;
+                s->offset = PF_LCD_WIDTH - s->width;
                 s->step = -scroll_line_info.step;
                 s->start_tick = *rb->current_tick + scroll_line_info.delay * 2;
             }
@@ -1095,7 +1128,7 @@ static void init_reflect_table(void)
     int i;
     for (i = 0; i < REFLECT_HEIGHT; i++)
         reflect_table[i] =
-            (768 * (REFLECT_HEIGHT - i) + (5 * REFLECT_HEIGHT / 2)) /
+            (384 * (REFLECT_HEIGHT - i) + (5 * REFLECT_HEIGHT / 2)) /
             (5 * REFLECT_HEIGHT);
 }
 
@@ -1259,7 +1292,7 @@ static int create_album_untagged(struct tagcache_search *tcs,
     draw_progressbar(0, total_count, STR_STEP_INDEXING_UNTAGGED);
 
     /* search tagcache for all <untagged> albums & save the albumartist seek pos */
-    if (rb->tagcache_search(tcs, tag_albumartist))
+    if (rb->tagcache_search(tcs, tag_virt_canonicalartist))
     {
         rb->tagcache_search_add_filter(tcs, tag_album, pf_idx.album_untagged_seek);
 
@@ -1348,7 +1381,7 @@ static int build_artist_index(struct tagcache_search *tcs,
     /* artist names starts at beginning of buf */
     pf_idx.artist_names = *buf;
 
-    rb->tagcache_search(tcs, tag_albumartist);
+    rb->tagcache_search(tcs, tag_virt_canonicalartist);
     res = get_tcs_search_res(ePFS_ARTIST, tcs, &(*buf), bufsz);
     rb->tagcache_search_finish(tcs);
     if (res < SUCCESS)
@@ -1396,7 +1429,7 @@ static int assign_album_year(void)
                                        pf_idx.album_index[album_idx].seek);
 
             if (pf_idx.album_index[album_idx].artist_idx >= 0)
-                rb->tagcache_search_add_filter(&tcs, tag_albumartist,
+                rb->tagcache_search_add_filter(&tcs, tag_virt_canonicalartist,
                     pf_idx.album_index[album_idx].artist_seek);
 
             while (rb->tagcache_get_next(&tcs, tcs_buf, tcs_bufsz)) {
@@ -1481,7 +1514,7 @@ static int create_album_index(void)
 
         if (pf_idx.album_index[j].artist_seek >= 0) { continue; }
 
-        rb->tagcache_search(&tcs, tag_albumartist);
+        rb->tagcache_search(&tcs, tag_virt_canonicalartist);
         rb->tagcache_search_add_filter(&tcs, tag_album, pf_idx.album_index[j].seek);
 
         last = 0;
@@ -1561,10 +1594,13 @@ retry_artist_lookup:
     rb->qsort(pf_idx.album_index, pf_idx.album_ct,
               sizeof(struct album_data), compare_album_artists);
 
-    /* remove any extra untagged albums
+    /* remove any duplicate entries marked with artist_idx == -1
      * extra space is orphaned till restart */
-    pf_idx.album_index += pf_idx.album_untagged_idx + 1;
-    pf_idx.album_ct -= pf_idx.album_untagged_idx + 1;
+    while (pf_idx.album_ct > 0 && pf_idx.album_index[0].artist_idx < 0)
+    {
+        pf_idx.album_index++;
+        pf_idx.album_ct--;
+    }
 
     pf_idx.buf = buf;
     pf_idx.buf_sz = buf_size;
@@ -1866,9 +1902,9 @@ static int id3_get_index(struct mp3entry *id3)
     if(id3)
     {
         /* we could be looking for the artist in either field */
-        if(id3->albumartist)
+        if (id3->albumartist && id3->albumartist[0])
             current_artist = id3->albumartist;
-        else if(id3->artist)
+        else if (id3->artist && id3->artist[0])
             current_artist = id3->artist;
 
         if (id3->album && rb->strlen(id3->album) > 0)
@@ -1944,7 +1980,7 @@ static bool track_buffer_avail(size_t needed)
 }
 
 
-static int pf_tcs_retrieve_track_title(int string_index, int disc_num, int track_num)
+static int pf_tcs_retrieve_track_title(int string_index, int disc_num, int track_num, int length_ms)
 {
     char file_name[MAX_PATH];
     char *track_title = NULL;
@@ -1962,14 +1998,32 @@ static int pf_tcs_retrieve_track_title(int string_index, int disc_num, int track
     if (!track_title)
         track_title = tcs.result;
 
-    int max_len = rb->strlen(track_title) + 1;
+    int max_len = rb->strlen(track_title) + 40;
     if (!track_buffer_avail(max_len))
         return 0;
 
-    (void)disc_num;
-    (void)track_num;
-    str_len = rb->snprintf(pf_tracks.names + string_index, max_len, "%s",
-                           track_title);
+    int secs = (length_ms > 0) ? (length_ms / 1000) : 0;
+    int mins = secs / 60;
+    secs %= 60;
+
+    if (disc_num > 0 && track_num > 0 && length_ms > 0)
+        str_len = rb->snprintf(pf_tracks.names + string_index, max_len, "%d.%02d. %s - %02d:%02d",
+                               disc_num, track_num, track_title, mins, secs);
+    else if (track_num > 0 && length_ms > 0)
+        str_len = rb->snprintf(pf_tracks.names + string_index, max_len, "%02d. %s - %02d:%02d",
+                               track_num, track_title, mins, secs);
+    else if (disc_num > 0 && track_num > 0)
+        str_len = rb->snprintf(pf_tracks.names + string_index, max_len, "%d.%02d. %s",
+                               disc_num, track_num, track_title);
+    else if (track_num > 0)
+        str_len = rb->snprintf(pf_tracks.names + string_index, max_len, "%02d. %s",
+                               track_num, track_title);
+    else if (length_ms > 0)
+        str_len = rb->snprintf(pf_tracks.names + string_index, max_len, "%s - %02d:%02d",
+                               track_title, mins, secs);
+    else
+        str_len = rb->snprintf(pf_tracks.names + string_index, max_len, "%s",
+                               track_title);
     return str_len;
 }
 
@@ -2004,7 +2058,7 @@ static void create_track_index(const int slide_index)
                                    pf_idx.album_index[slide_index].seek);
 
     if (pf_idx.album_index[slide_index].artist_idx >= 0)
-        rb->tagcache_search_add_filter(&tcs, tag_albumartist,
+        rb->tagcache_search_add_filter(&tcs, tag_virt_canonicalartist,
             pf_idx.album_index[slide_index].artist_seek);
 
     int string_index = 0;
@@ -2014,9 +2068,10 @@ static void create_track_index(const int slide_index)
     {
         int disc_num = rb->tagcache_get_numeric(&tcs, tag_discnumber);
         int track_num = rb->tagcache_get_numeric(&tcs, tag_tracknumber);
+        int length_ms = rb->tagcache_get_numeric(&tcs, tag_length);
         disc_num = disc_num > 0 ? disc_num : 0;
         track_num = track_num > 0 ? track_num : 0;
-        int fn_idx = 1 + pf_tcs_retrieve_track_title(string_index, disc_num, track_num);
+        int fn_idx = 1 + pf_tcs_retrieve_track_title(string_index, disc_num, track_num, length_ms);
         if (fn_idx <= 1)
             goto fail;
         pf_tracks.used += fn_idx;
@@ -2082,7 +2137,7 @@ static inline void free_borrowed_tracks(void)
  */
 bool retrieve_id3(struct mp3entry *id3, const char* file)
 {
-#if defined (HAVE_TAGCACHE) && defined(HAVE_TC_RAMCACHE) && defined(HAVE_DIRCACHE)
+#if defined (HAVE_TAGCACHE) && defined(HAVE_TC_RAMCACHE) && (defined(HAVE_DIRCACHE) || defined(INNIOASIS_Y1))
     if (rb->tagcache_fill_tags(id3, file))
     {
         rb->strlcpy(id3->path, file, sizeof(id3->path));
@@ -2112,7 +2167,7 @@ static bool get_albumart_for_index_from_db(const int slide_index, char *buf,
     rb->tagcache_search_add_filter(&tcs, tag_album,
                                    pf_idx.album_index[slide_index].seek);
 
-    rb->tagcache_search_add_filter(&tcs, tag_albumartist,
+    rb->tagcache_search_add_filter(&tcs, tag_virt_canonicalartist,
                                    pf_idx.album_index[slide_index].artist_seek);
 
     ret = rb->tagcache_get_next(&tcs, tcs_buf, tcs_bufsz) &&
@@ -2157,7 +2212,7 @@ static void draw_splashscreen(unsigned char * buf_tmp, size_t buf_tmp_size)
 #if LCD_DEPTH == 1  /* Mono LCDs need the logo inverted */
         rb->lcd_set_drawmode(PICTUREFLOW_DRMODE ^ DRMODE_INVERSEVID);
 #endif
-        display->bitmap(logo.data, (LCD_WIDTH - logo.width) / 2, 10,
+        display->bitmap(logo.data, (PF_LCD_WIDTH - logo.width) / 2, 10,
             logo.width, logo.height);
 #if LCD_DEPTH == 1  /* Mono LCDs need the logo inverted */
         rb->lcd_set_drawmode(PICTUREFLOW_DRMODE);
@@ -2175,7 +2230,7 @@ static void draw_progressbar(int step, int count, char *msg)
 {
     static int txt_w, txt_h;
     const int bar_height = 22;
-    const int w = LCD_WIDTH - 20;
+    const int w = PF_LCD_WIDTH - 20;
     const int x = 10;
     static int y;
     if (msg != NULL)
@@ -2188,9 +2243,9 @@ static void draw_progressbar(int step, int count, char *msg)
 #endif
         rb->lcd_getstringsize(msg, &txt_w, &txt_h);
 
-        y = (LCD_HEIGHT - txt_h)/2;
+        y = (PF_LCD_HEIGHT - txt_h)/2;
 
-        rb->lcd_putsxy((LCD_WIDTH - txt_w)/2, y, msg);
+        rb->lcd_putsxy((PF_LCD_WIDTH - txt_w)/2, y, msg);
         y += (txt_h + 5);
     }
 #if LCD_DEPTH > 1
@@ -2203,6 +2258,7 @@ static void draw_progressbar(int step, int count, char *msg)
 
     rb->lcd_fillrect(x+1, y+1, step * w / count, bar_height-2);
 #if LCD_DEPTH > 1
+    rb->lcd_set_background(PF_THEME_BG);
     rb->lcd_set_foreground(PF_THEME_FG);
 #endif
     rb->lcd_update();
@@ -2292,6 +2348,30 @@ static bool incremental_albumart_cache(bool verbose)
     aa_cache.input_bmp.width = DISPLAY_WIDTH;
     aa_cache.input_bmp.height = DISPLAY_HEIGHT;
 
+#ifdef INNIOASIS_Y1
+    if (rb->strncmp(aa_cache.file, "ithmb://", 8) == 0) {
+        size_t half = aa_cache.buf_sz / 2;
+        struct bitmap tmp_bmp = aa_cache.input_bmp;
+        tmp_bmp.data = aa_cache.buf + half;
+        ret = read_jpeg_file(aa_cache.file, &tmp_bmp, half, format, NULL);
+        if (ret > 0) {
+            int dw = tmp_bmp.width;
+            int dh = tmp_bmp.height;
+            if ((size_t)dw * (size_t)dh * sizeof(pix_t) <= half) {
+                const pix_t *src_px = (const pix_t *)tmp_bmp.data;
+                pix_t *dst_px = (pix_t *)aa_cache.buf;
+                for (int x = 0; x < dw; x++)
+                    for (int y = 0; y < dh; y++)
+                        dst_px[x * dh + y] = src_px[y * dw + x];
+                aa_cache.input_bmp.width = dw;
+                aa_cache.input_bmp.height = dh;
+                aa_cache.input_bmp.data = aa_cache.buf;
+            } else {
+                ret = -1;
+            }
+        }
+    } else
+#endif
     ret = read_image_file(aa_cache.file, &aa_cache.input_bmp,
                           aa_cache.buf_sz, format, &format_transposed);
     if (ret <= 0) {
@@ -2978,7 +3058,7 @@ static void recalc_offsets(void)
                 pf_cfg.center_margin * PFREAL_ONE) * pf_cfg.zoom / 100;
     PFreal cosr, sinr;
 
-    itilt = 70 * IANGLE_MAX / 360;      /* approx. 70 degrees tilted */
+    itilt = 78 * IANGLE_MAX / 360;      /* approx. 78 degrees tilted */
     cosr = fcos(-itilt);
     sinr = fsin(-itilt);
     zo = CAM_DIST_R * 100 / pf_cfg.zoom - CAM_DIST_R +
@@ -3072,12 +3152,12 @@ static void render_slide(struct slide_data *slide, const int alpha)
     const int sw = bmp->width;
     const int sh = bmp->height;
     const PFreal slide_left = -sw * PFREAL_HALF + PFREAL_HALF;
-    const int w = LCD_WIDTH;
+    const int w = PF_LCD_WIDTH;
 
-    uint8_t reftab[REFLECT_HEIGHT]; /* on stack, which is in IRAM on several targets */
+    uint8_t reftab[MAX_REFLECT_HEIGHT]; /* on stack, which is in IRAM on several targets */
 
     if (alpha == 256) { /* opaque -> copy table */
-        rb->memcpy(reftab, reflect_table, sizeof(reftab));
+        rb->memcpy(reftab, reflect_table, (size_t)REFLECT_HEIGHT);
     } else {            /* precalculate faded table */
         int i, lalpha;
         for (i = 0; i < REFLECT_HEIGHT; i++) {
@@ -3124,13 +3204,15 @@ static void render_slide(struct slide_data *slide, const int alpha)
 #define PIXELSTEP_Y   1
 #define LCDADDR(x, y) (&buffer[BUFFER_HEIGHT*(x) + (y)])
 #else
-#define PIXELSTEP_Y   BUFFER_WIDTH
-#define LCDADDR(x, y) (&buffer[(y)*BUFFER_WIDTH + (x)])
+#define PIXELSTEP_Y   LCD_WIDTH
+#define LCDADDR(x, y) (&buffer[(y)*LCD_WIDTH + (x)])
 #endif
 
         int p = (bmp->height-1-DISPLAY_OFFS) * PFREAL_ONE;
-        int plim = MAX(0, p - (LCD_HEIGHT/2-1) * dy);
-        pix_t *pixel = LCDADDR(x, (LCD_HEIGHT/2)-1 );
+        int y_mid = PF_Y_MID;
+        int top_span = MAX(0, (y_mid - 1) - pf_sb_top);
+        int plim = MAX(0, p - top_span * dy);
+        pix_t *pixel = LCDADDR(x, y_mid - 1);
 
         if (alpha == 256) {
             while (p >= plim) {
@@ -3146,10 +3228,11 @@ static void render_slide(struct slide_data *slide, const int alpha)
             }
         }
         p = (bmp->height-DISPLAY_OFFS) * PFREAL_ONE;
-        plim = MIN(sh * PFREAL_ONE, p + (LCD_HEIGHT/2) * dy);
+        int bot_span = MAX(0, PF_LCD_HEIGHT - y_mid);
+        plim = MIN(sh * PFREAL_ONE, p + bot_span * dy);
         int plim2 = MIN(MIN(sh + REFLECT_HEIGHT, sh * 2) * PFREAL_ONE,
-                        p + (LCD_HEIGHT/2) * dy);
-        pixel = LCDADDR(x, (LCD_HEIGHT/2) );
+                        p + bot_span * dy);
+        pixel = LCDADDR(x, y_mid);
 
         if (alpha == 256) {
             while (p < plim) {
@@ -3385,13 +3468,25 @@ static void render_all_slides(void)
 #endif
     mylcd_set_background(PF_THEME_BG);
     /* TODO: Optimizes this by e.g. invalidating rects */
-    mylcd_clear_display();
+    if (pf_sb_top > 0)
+    {
+        mylcd_set_foreground(PF_THEME_BG);
+        mylcd_fillrect(0, pf_sb_top, PF_LCD_WIDTH, PF_LCD_HEIGHT - pf_sb_top);
+    }
+    else
+    {
+        mylcd_clear_display();
+    }
 
     int nleft = pf_cfg.num_slides;
     int nright = pf_cfg.num_slides;
 
     int alpha;
     int index;
+    int center_alpha = 256;
+    if (step != 0 && pf_cfg.num_slides <= 2) /* fading out center slide */
+        center_alpha = (step > 0) ? 256 - fade / 2 : 128 + fade / 2;
+
     if (step == 0) {
         /* no animation, boring plain rendering */
         for (index = nleft - 2; index >= 0; index--) {
@@ -3406,13 +3501,24 @@ static void render_all_slides(void)
             if (alpha > 0 )
                 render_slide(&right_slides[index], alpha);
         }
+        render_slide(&center_slide, center_alpha);
     } else {
-        /* the first and last slide must fade in/fade out */
+        /* the first and last slide must fade in/fade out.
+         * Draw back-to-front by depth (cy): if the incoming slide (right_slides[0]
+         * for step>0, left_slides[0] for step<0) is closer to the camera than the
+         * outgoing center_slide, draw center_slide before that incoming slide so the
+         * previous slide does not clip through the new current slide. */
+        bool right0_on_top = (step > 0 && nright > 0 && right_slides[0].cy < center_slide.cy);
+        bool left0_on_top  = (step < 0 && nleft > 0 && left_slides[0].cy < center_slide.cy);
+        int left0_alpha = 0;
+        int right0_alpha = 0;
 
         /* if step<0 and nleft==1, left_slides[0] is fading in  */
         alpha = ((step > 0) ? 0 : ((nleft == 1) ? 256 : 128)) - fade / 2;
         for (index = nleft - 1; index >= 0; index--) {
-            if (alpha > 0)
+            if (index == 0 && left0_on_top)
+                left0_alpha = alpha;
+            else if (alpha > 0)
                 render_slide(&left_slides[index], alpha);
             alpha += 128;
             if (alpha > 256) alpha = 256;
@@ -3420,16 +3526,19 @@ static void render_all_slides(void)
         /* if step>0 and nright==1, right_slides[0] is fading in  */
         alpha = ((step > 0) ? ((nright == 1) ? 128 : 0) : -128) + fade / 2;
         for (index = nright - 1; index >= 0; index--) {
-            if (alpha > 0)
+            if (index == 0 && right0_on_top)
+                right0_alpha = alpha;
+            else if (alpha > 0)
                 render_slide(&right_slides[index], alpha);
             alpha += 128;
             if (alpha > 256) alpha = 256;
         }
+        render_slide(&center_slide, center_alpha);
+        if (left0_on_top && left0_alpha > 0)
+            render_slide(&left_slides[0], left0_alpha);
+        if (right0_on_top && right0_alpha > 0)
+            render_slide(&right_slides[0], right0_alpha);
     }
-    alpha = 256;
-    if (step != 0 && pf_cfg.num_slides <= 2) /* fading out center slide */
-        alpha = (step > 0) ? 256 - fade / 2 : 128 + fade / 2;
-    render_slide(&center_slide, alpha);
 }
 
 
@@ -3629,7 +3738,7 @@ static int display_settings_menu(void)
                 old_val = pf_cfg.center_margin;
                 rb->set_int(rb->str(LANG_CENTRE_MARGIN), "", 1,
                             &pf_cfg.center_margin,
-                            NULL, 1, 0, 80, NULL );
+                            NULL, 1, -40, 80, NULL );
                 adjust_album_display_for_setting(old_val, pf_cfg.center_margin);
                 break;
             case 4:
@@ -3785,7 +3894,9 @@ static int main_menu(void)
     int result, curr_album, old_val;
 
 #if LCD_DEPTH > 1
+    rb->lcd_set_background(PF_THEME_BG);
     rb->lcd_set_foreground(PF_THEME_FG);
+    rb->lcd_clear_display();
 #endif
 
     MENUITEM_STRINGLIST(main_menu, ID2P(LANG_PICTUREFLOW), NULL,
@@ -3889,31 +4000,75 @@ static int main_menu(void)
     }
 }
 
-#define ZOOMIN_FRAME_COUNT  19
-#define ZOOMIN_FRAME_DIST   -5
-#define ZOOMIN_FRAME_ANGLE  1
-#define ZOOMIN_FRAME_FADE   13
+#define ZOOMIN_FRAME_COUNT  8
+#define ZOOMIN_FRAME_DIST   -12
+#define ZOOMIN_FRAME_ANGLE  2
+#define ZOOMIN_FRAME_FADE   31
 
-#define ROTATE_FRAME_COUNT  15
-#define ROTATE_FRAME_ANGLE  16
+#define ROTATE_FRAME_COUNT  7
+#define ROTATE_FRAME_ANGLE  34
 
-#define KEYFRAME_COUNT ZOOMIN_FRAME_COUNT + ROTATE_FRAME_COUNT
+#define KEYFRAME_COUNT 18
+
+/**
+   Fixed-point easeOutQuint: 1 - (1 - t)^5, where num/den in [0, 1] -> [0, 1024]
+ */
+static int ease_out_quint_1024(int num, int den)
+{
+    if (den <= 0 || num >= den)
+        return 1024;
+    if (num <= 0)
+        return 0;
+    int inv = 1024 - (num * 1024) / den;
+    int inv2 = (inv * inv) >> 10;
+    int inv4 = (inv2 * inv2) >> 10;
+    int inv5 = (inv4 * inv) >> 10;
+    return 1024 - inv5;
+}
+
+static void apply_cover_animation_at_keyframe(int k)
+{
+    int zoom_dist_total = ZOOMIN_FRAME_COUNT * ZOOMIN_FRAME_DIST;
+    int zoom_fade_total = ZOOMIN_FRAME_COUNT * ZOOMIN_FRAME_FADE;
+    int angle_total = ZOOMIN_FRAME_COUNT * ZOOMIN_FRAME_ANGLE +
+                      ROTATE_FRAME_COUNT * ROTATE_FRAME_ANGLE;
+
+    if (k <= 0)
+    {
+        center_slide.distance = 0;
+        center_slide.angle = 0;
+        extra_fade = 0;
+    }
+    else if (k >= KEYFRAME_COUNT)
+    {
+        center_slide.distance = zoom_dist_total;
+        center_slide.angle = angle_total;
+        extra_fade = zoom_fade_total;
+    }
+    else
+    {
+        int e = ease_out_quint_1024(k, KEYFRAME_COUNT);
+        center_slide.distance = (zoom_dist_total * e) / 1024;
+        center_slide.angle = (angle_total * e) / 1024;
+        extra_fade = (zoom_fade_total * e) / 1024;
+    }
+}
 
 /**
    Animation step for zooming into the current cover
  */
+#define COVER_IN_EARLY_END  7
+#define COVER_IN_FADE_SPAN  4
+
 static void update_cover_in_animation(void)
 {
     cover_animation_keyframe++;
 
-    if(cover_animation_keyframe <= ZOOMIN_FRAME_COUNT)
+    if (cover_animation_keyframe <= COVER_IN_EARLY_END &&
+        cover_animation_keyframe <= KEYFRAME_COUNT)
     {
-        center_slide.distance += ZOOMIN_FRAME_DIST;
-        center_slide.angle +=    ZOOMIN_FRAME_ANGLE;
-        extra_fade +=            ZOOMIN_FRAME_FADE;
+        apply_cover_animation_at_keyframe(cover_animation_keyframe);
     }
-    else if(cover_animation_keyframe <= KEYFRAME_COUNT)
-        center_slide.angle += ROTATE_FRAME_ANGLE;
     else
     {
         cover_animation_keyframe = 0;
@@ -3928,13 +4083,9 @@ static void update_cover_out_animation(void)
 {
     cover_animation_keyframe++;
 
-    if(cover_animation_keyframe <= ROTATE_FRAME_COUNT)
-        center_slide.angle -= ROTATE_FRAME_ANGLE;
-    else if(cover_animation_keyframe <= KEYFRAME_COUNT)
+    if (cover_animation_keyframe <= KEYFRAME_COUNT)
     {
-        center_slide.distance -= ZOOMIN_FRAME_DIST;
-        center_slide.angle -=    ZOOMIN_FRAME_ANGLE;
-        extra_fade -=            ZOOMIN_FRAME_FADE;
+        apply_cover_animation_at_keyframe(KEYFRAME_COUNT - cover_animation_keyframe);
     }
     else
     {
@@ -3989,12 +4140,11 @@ static inline void draw_gradient(int y, int h)
     int c2 = pf_tracks.sel_pulse - 5;
     for (r=0; r<h; r++) {
 #ifdef HAVE_LCD_COLOR
-        mylcd_set_foreground(G_PIX(c2+80-(c >> 9), c2+100-(c >> 9),
-                                           c2+250-(c >> 8)));
+        mylcd_set_foreground(G_BRIGHT(140 + c2 * 3 - (c >> 9)));
 #else
         mylcd_set_foreground(G_BRIGHT(c2+160-(c >> 8)));
 #endif
-        mylcd_hline(0, LCD_WIDTH, r+y);
+        mylcd_hline(0, PF_LCD_WIDTH, r+y);
         if ( r > h/2 )
             c-=inc;
         else
@@ -4011,25 +4161,25 @@ static void track_list_yh(int char_height)
     {
         case ALBUM_NAME_HIDE:
             pf_tracks.list_y = (needs_space ? char_height : 0);
-            pf_tracks.list_h = LCD_HEIGHT - pf_tracks.list_y;
+            pf_tracks.list_h = PF_LCD_HEIGHT - pf_tracks.list_y;
             break;
         case ALBUM_NAME_BOTTOM:
             pf_tracks.list_y = (needs_space ? char_height : 0);
-            pf_tracks.list_h = LCD_HEIGHT - pf_tracks.list_y - (char_height * 3);
+            pf_tracks.list_h = PF_LCD_HEIGHT - pf_tracks.list_y - (char_height * 3);
             break;
         case ALBUM_AND_ARTIST_TOP:
             pf_tracks.list_y = char_height * 3;
-            pf_tracks.list_h = LCD_HEIGHT - pf_tracks.list_y -
+            pf_tracks.list_h = PF_LCD_HEIGHT - pf_tracks.list_y -
                            (needs_space ? char_height : 0);
             break;
         case ALBUM_AND_ARTIST_BOTTOM:
             pf_tracks.list_y = (needs_space ? char_height : 0);
-            pf_tracks.list_h = LCD_HEIGHT - pf_tracks.list_y - (char_height * 3);
+            pf_tracks.list_h = PF_LCD_HEIGHT - pf_tracks.list_y - (char_height * 3);
             break;
         case ALBUM_NAME_TOP:
         default:
             pf_tracks.list_y = char_height * 3;
-            pf_tracks.list_h = LCD_HEIGHT - pf_tracks.list_y -
+            pf_tracks.list_h = PF_LCD_HEIGHT - pf_tracks.list_y -
                            (needs_space ? char_height : 0);
             break;
     }
@@ -4063,7 +4213,7 @@ void reset_track_list(void)
 static void draw_album_text(void);
 static void show_track_list_loading(void)
 {
-    int x = (LCD_WIDTH - mylcd_getstringsize(rb->str(LANG_WAIT), NULL, NULL)) / 2;
+    int x = (PF_LCD_WIDTH - mylcd_getstringsize(rb->str(LANG_WAIT), NULL, NULL)) / 2;
     mylcd_set_foreground(G_BRIGHT(255));
     int char_height = rb->screens[SCREEN_MAIN]->getcharheight();
     track_list_yh(char_height);
@@ -4118,7 +4268,7 @@ static bool show_track_list(void)
         }
         else {
             titletxt_w = mylcd_getstringsize(trackname, NULL, NULL);
-            titletxt_x = (LCD_WIDTH-titletxt_w)/2;
+            titletxt_x = (PF_LCD_WIDTH-titletxt_w)/2;
             fade = (abs(pf_tracks.sel - track_i) * 200 / pf_tracks.count);
             color = 250 - fade;
         }
@@ -4285,7 +4435,7 @@ static int pf_add_to_playlist(const char* playlist, bool new_playlist)
 
 static bool track_list_ready(void)
 {
-    if (pf_state != pf_show_tracks)
+    if (pf_tracks.cur_idx != center_slide.slide_index || pf_tracks.count == 0)
     {
 #ifdef HAVE_TC_RAMCACHE
         if (!rb->tagcache_is_in_ram())
@@ -4511,15 +4661,15 @@ static void draw_album_text(void)
     char_height = rb->screens[SCREEN_MAIN]->getcharheight();
     switch(pf_cfg.show_album_name){
         case ALBUM_AND_ARTIST_TOP:
-            albumtxt_y = 0;
+            albumtxt_y = pf_sb_top;
             break;
         case ALBUM_NAME_BOTTOM:
         case ALBUM_AND_ARTIST_BOTTOM:
-            albumtxt_y = (LCD_HEIGHT - (char_height * 5 / 2));
+            albumtxt_y = (PF_LCD_HEIGHT - (char_height * 5 / 2));
             break;
         case ALBUM_NAME_TOP:
         default:
-            albumtxt_y = char_height / 2;
+            albumtxt_y = pf_sb_top + char_height / 2;
             break;
     }
 
@@ -4575,8 +4725,12 @@ static bool init(void)
     rb->sb_set_persistent_title(pf_cfg.show_statusbar ?
                                 rb->str(LANG_PICTUREFLOW) : NULL,
                                 Icon_NOICON, SCREEN_MAIN);
+    struct viewport vp_ui;
+    rb->viewport_set_defaults(&vp_ui, SCREEN_MAIN);
+    pf_sb_top = pf_cfg.show_statusbar ? vp_ui.y : 0;
     struct viewport *vp_main = rb->lcd_set_viewport(NULL);
     lcd_fb = vp_main->buffer->fb_ptr;
+    pf_fb_stride = vp_main->buffer->stride;
 
     if(pf_cfg.backlight_mode == 0)
         backlight_ignore_timeout(); /* restore in cleanup */
@@ -4777,6 +4931,512 @@ static bool prompt_reinit(void)
   Main function that also contain the main plasma
   algorithm.
  */
+#if defined(INNIOASIS_Y1) && defined(HAVE_LCD_COLOR)
+static const ucschar_t scroll_abc_hangul_initials[] = {
+    0x3131, 0x3132, 0x3134, 0x3137, 0x3138, 0x3139, 0x3141,
+    0x3142, 0x3143, 0x3145, 0x3146, 0x3147, 0x3148, 0x3149,
+    0x314a, 0x314b, 0x314c, 0x314d, 0x314e
+};
+
+static ucschar_t scroll_abc_fold(ucschar_t ch)
+{
+    if (ch >= 0xac00 && ch <= 0xd7a3)
+        return scroll_abc_hangul_initials[(ch - 0xac00) / 588];
+    if (ch >= 0x1100 && ch <= 0x1112)
+        return scroll_abc_hangul_initials[ch - 0x1100];
+    if ((ch >= 'A' && ch <= 'Z') ||
+        (ch >= 0x00c0 && ch <= 0x00d6) ||
+        (ch >= 0x00d8 && ch <= 0x00de) ||
+        (ch >= 0x0391 && ch <= 0x03a1) ||
+        (ch >= 0x03a3 && ch <= 0x03ab) ||
+        (ch >= 0x0410 && ch <= 0x042f) ||
+        (ch >= 0x0531 && ch <= 0x0556) ||
+        (ch >= 0xff21 && ch <= 0xff3a))
+        return ch + 0x20;
+    if (ch == 0x0401)
+        return 0x0451;
+    return ch;
+}
+
+static ucschar_t scroll_abc_display_char(ucschar_t ch)
+{
+    if (ch >= 0xac00 && ch <= 0xd7a3)
+        return scroll_abc_hangul_initials[(ch - 0xac00) / 588];
+    if (ch >= 0x1100 && ch <= 0x1112)
+        return scroll_abc_hangul_initials[ch - 0x1100];
+    if ((ch >= 'a' && ch <= 'z') ||
+        (ch >= 0x00e0 && ch <= 0x00f6) ||
+        (ch >= 0x00f8 && ch <= 0x00fe) ||
+        (ch >= 0x03b1 && ch <= 0x03c1) ||
+        (ch >= 0x03c3 && ch <= 0x03cb) ||
+        (ch >= 0x0430 && ch <= 0x044f) ||
+        (ch >= 0x0561 && ch <= 0x0586) ||
+        (ch >= 0xff41 && ch <= 0xff5a))
+        return ch - 0x20;
+    if (ch == 0x0451)
+        return 0x0401;
+    return ch;
+}
+
+static bool scroll_abc_is_fast_wheel_action(int button)
+{
+    (void)button;
+    long now = *rb->current_tick;
+    if (scroll_abc_last_wheel_tick &&
+        TIME_BEFORE(now, scroll_abc_last_wheel_tick + PF_ABC_FAST_WINDOW))
+        scroll_abc_fast_streak++;
+    else
+        scroll_abc_fast_streak = 0;
+
+    scroll_abc_last_wheel_tick = now;
+    return scroll_abc_fast_streak >= PF_ABC_REQUIRED_STREAK;
+}
+
+static bool scroll_abc_get_initial(int idx, ucschar_t *folded, char *initial)
+{
+    if (idx < 0 || idx >= number_of_slides)
+        return false;
+
+    bool by_artist = (pf_cfg.sort_albums_by != SORT_BY_NAME);
+    const char *text = get_slide_name(idx, by_artist);
+    if (!text || !*text)
+        return false;
+
+    ucschar_t ch = 0;
+    const unsigned char *next = rb->utf8decode((const unsigned char *)text, &ch);
+    if (next == (const unsigned char *)text || ch == 0)
+        return false;
+
+    *folded = scroll_abc_fold(ch);
+    unsigned char *end = rb->utf8encode(scroll_abc_display_char(ch),
+                                        (unsigned char *)initial);
+    *end = '\0';
+    return true;
+}
+
+static bool scroll_abc_overlay_active(void)
+{
+    return scroll_abc_overlay_visible &&
+           TIME_BEFORE(*rb->current_tick,
+                       scroll_abc_overlay_tick + PF_ABC_OVERLAY_TICKS);
+}
+
+static bool scroll_abc_move(int direction)
+{
+    if (number_of_slides <= 0 || pf_cfg.sort_albums_by == SORT_BY_YEAR)
+        return false;
+
+    int cur = (pf_state == pf_scrolling) ? target : center_index;
+    ucschar_t current, candidate;
+    char initial[5], candidate_initial[5];
+
+    if (!scroll_abc_get_initial(cur, &current, initial))
+        return false;
+
+    for (int offset = 1; offset < number_of_slides; offset++)
+    {
+        int item = cur + direction * offset;
+        if (item < 0 || item >= number_of_slides)
+            break;
+
+        if (scroll_abc_get_initial(item, &candidate, candidate_initial) &&
+            candidate != current)
+        {
+            int first_item = item;
+            while (first_item > 0)
+            {
+                ucschar_t prev_initial;
+                char prev_text[5];
+                if (!scroll_abc_get_initial(first_item - 1, &prev_initial, prev_text) ||
+                    prev_initial != candidate)
+                    break;
+                first_item--;
+            }
+
+            pf_state = pf_idle;
+            target = first_item;
+            set_current_slide(first_item);
+            size_t len = rb->strlen(candidate_initial);
+            rb->memcpy(scroll_abc_overlay, candidate_initial, len + 1);
+            scroll_abc_overlay_tick = *rb->current_tick;
+            scroll_abc_overlay_visible = true;
+            return true;
+        }
+    }
+    return false;
+}
+
+static unsigned int pf_abc_isqrt(unsigned int n)
+{
+    unsigned int root = 0;
+    unsigned int bit = 1U << 30;
+    while (bit > n)
+        bit >>= 2;
+    while (bit != 0)
+    {
+        if (n >= root + bit)
+        {
+            n -= root + bit;
+            root = (root >> 1) + bit;
+        }
+        else
+        {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return root;
+}
+
+static pix_t pf_abc_blend_pix(pix_t fg, pix_t bg, int alpha)
+{
+    int inv = 255 - alpha;
+    int r = (RGB_UNPACK_RED(fg) * alpha + RGB_UNPACK_RED(bg) * inv) / 255;
+    int g = (RGB_UNPACK_GREEN(fg) * alpha + RGB_UNPACK_GREEN(bg) * inv) / 255;
+    int b = (RGB_UNPACK_BLUE(fg) * alpha + RGB_UNPACK_BLUE(bg) * inv) / 255;
+    return LCD_RGBPACK(r, g, b);
+}
+
+static void scroll_abc_draw_overlay(void)
+{
+    if (!scroll_abc_overlay_active())
+    {
+        scroll_abc_overlay_visible = false;
+        return;
+    }
+
+    int avail_h = PF_LCD_HEIGHT - pf_sb_top;
+    int radius = MIN(PF_ABC_RADIUS, MIN(PF_LCD_WIDTH, avail_h) / 2);
+    int cx = PF_LCD_WIDTH / 2;
+    int cy = pf_sb_top + avail_h / 2;
+    int text_width = 0, text_height = 0;
+    pix_t fg_col = PF_THEME_FG;
+    pix_t bg_col = PF_THEME_BG;
+    int r16 = radius * 16;
+
+    for (int y = -radius; y <= radius; y++)
+    {
+        int x_inner = -1;
+        for (int x = 0; x <= radius; x++)
+        {
+            unsigned int d16 = pf_abc_isqrt((unsigned int)(x * x + y * y) * 256U);
+            if ((int)d16 <= r16 - 16)
+            {
+                x_inner = x;
+            }
+            else if ((int)d16 < r16)
+            {
+                int alpha = ((r16 - (int)d16) * 255) / 16;
+                mylcd_set_foreground(pf_abc_blend_pix(fg_col, bg_col, alpha));
+                mylcd_drawpixel(cx + x, cy + y);
+                if (x > 0)
+                    mylcd_drawpixel(cx - x, cy + y);
+            }
+            else
+            {
+                break;
+            }
+        }
+        if (x_inner >= 0)
+        {
+            mylcd_set_foreground(fg_col);
+            mylcd_hline(cx - x_inner, cx + x_inner, cy + y);
+        }
+    }
+
+    mylcd_set_foreground(bg_col);
+    mylcd_getstringsize((const unsigned char *)scroll_abc_overlay,
+                        &text_width, &text_height);
+    mylcd_putsxy(cx - text_width / 2, cy - text_height / 2,
+                 (const unsigned char *)scroll_abc_overlay);
+}
+#endif
+
+static const char *pf_db_track_get_name(int selected_item, void *data,
+                                        char *buffer, size_t buffer_len)
+{
+    (void)data;
+    if (selected_item == 0)
+        return rb->str(LANG_PLAY);
+    if (selected_item == 1)
+        return rb->str(LANG_SHUFFLE);
+
+    const char *name = get_track_name(selected_item - 2);
+    if (!name)
+    {
+        buffer[0] = '\0';
+        return buffer;
+    }
+
+    if (rb->global_settings->y1_modern_scheme)
+    {
+        static const char bullet[] = " \xe2\x80\xa2 "; /* " • " */
+        const char *s = name;
+        size_t o = 0;
+
+        if (*s >= '0' && *s <= '9')
+        {
+            const char *p = s;
+            while (*p >= '0' && *p <= '9') p++;
+            const char *q = NULL;
+            if (*p == '.' && p[1] >= '0' && p[1] <= '9')
+            {
+                q = p + 1;
+                while (*q >= '0' && *q <= '9') q++;
+            }
+            const char *end = (q && *q == '.' && q[1] == ' ') ? q :
+                              (*p == '.' && p[1] == ' ') ? p : NULL;
+            if (end)
+            {
+                while (s < p && *s == '0' && s + 1 < p) s++;
+                while (s < p && o + 1 < buffer_len) buffer[o++] = *s++;
+                if (end != p && o + 1 < buffer_len)
+                {
+                    buffer[o++] = '.';
+                    s++;
+                    while (s < q && *s == '0' && s + 1 < q) s++;
+                    while (s < q && o + 1 < buffer_len) buffer[o++] = *s++;
+                }
+                s = end + 2;
+                for (int i = 0; i < 3 && o + 1 < buffer_len; i++)
+                    buffer[o++] = ' ';
+            }
+        }
+
+        while (*s && o + 1 < buffer_len)
+        {
+            if (s[0] == ' ' && s[1] == '-' && s[2] == ' ')
+            {
+                if (o + sizeof(bullet) - 1 >= buffer_len)
+                    break;
+                rb->memcpy(buffer + o, bullet, sizeof(bullet) - 1);
+                o += sizeof(bullet) - 1;
+                s += 3;
+                continue;
+            }
+            if ((s == name || s[-1] == ' ') && *s >= '0' && *s <= '9')
+            {
+                const char *p = s;
+                while (*p >= '0' && *p <= '9') p++;
+                if (*p == ':')
+                {
+                    while (s < p && *s == '0' && s + 1 < p) s++;
+                    while (s < p && o + 1 < buffer_len) buffer[o++] = *s++;
+                    continue;
+                }
+            }
+            buffer[o++] = *s++;
+        }
+        buffer[o] = '\0';
+        return buffer;
+    }
+
+    rb->snprintf(buffer, buffer_len, "%s", name);
+    return buffer;
+}
+
+static enum themable_icons pf_db_track_get_icon(int selected_item, void *data)
+{
+    (void)data;
+    if (selected_item == 0 || selected_item == 1)
+        return Icon_Playback_menu;
+    return Icon_Audio;
+}
+
+static bool pf_cover_in_faded = false;
+
+static void pf_blend_fb_to_bg(int inv, bool full_screen)
+{
+#ifdef HAVE_LCD_COLOR
+    if (inv <= 0)
+        return;
+    if (inv > 256)
+        inv = 256;
+    pix_t bg = PF_THEME_BG;
+    int bg_r = RGB_UNPACK_RED(bg);
+    int bg_g = RGB_UNPACK_GREEN(bg);
+    int bg_b = RGB_UNPACK_BLUE(bg);
+    int y0 = full_screen ? 0 : pf_sb_top;
+    int w = PF_LCD_WIDTH;
+    int h = PF_LCD_HEIGHT;
+    int stride = pf_fb_stride;
+    int keep = 256 - inv;
+
+    for (int y = y0; y < h; y++)
+    {
+        pix_t *row = &lcd_fb[y * stride];
+        for (int x = 0; x < w; x++)
+        {
+            pix_t c = row[x];
+            int r = (RGB_UNPACK_RED(c) * keep + bg_r * inv) >> 8;
+            int g = (RGB_UNPACK_GREEN(c) * keep + bg_g * inv) >> 8;
+            int b = (RGB_UNPACK_BLUE(c) * keep + bg_b * inv) >> 8;
+            row[x] = LCD_RGBPACK(r, g, b);
+        }
+    }
+#else
+    (void)inv;
+    (void)full_screen;
+#endif
+}
+
+static void pf_crossfade_to_bg(bool full_screen)
+{
+#ifdef HAVE_LCD_COLOR
+    int y0 = full_screen ? 0 : pf_sb_top;
+    int w = PF_LCD_WIDTH;
+    int h = PF_LCD_HEIGHT;
+
+    for (int step_i = 1; step_i <= 8; step_i++)
+    {
+        int inv = (step_i == 8) ? 256 : (step_i * 48);
+        pf_blend_fb_to_bg(inv, full_screen);
+        if (y0 > 0)
+            mylcd_update_rect(0, y0, w, h - y0);
+        else
+            mylcd_update();
+        rb->sleep(HZ / 50);
+    }
+#else
+    (void)full_screen;
+#endif
+}
+
+static int show_album_tracks_db_list(void)
+{
+    if (!track_list_ready())
+        return -1;
+
+    if (!pf_cover_in_faded)
+        pf_crossfade_to_bg(false);
+    pf_cover_in_faded = false;
+
+#ifdef USEGSLIB
+    grey_show(false);
+#endif
+    rb->viewportmanager_theme_enable(SCREEN_MAIN, true, NULL);
+#if LCD_DEPTH > 1
+    rb->lcd_set_background(PF_THEME_BG);
+    rb->lcd_set_foreground(PF_THEME_FG);
+#endif
+    rb->lcd_set_viewport(NULL);
+    rb->lcd_clear_display();
+
+    int total_items = pf_tracks.count + 2;
+    struct gui_synclist lists;
+    rb->gui_synclist_init(&lists, pf_db_track_get_name, NULL, false, 1, NULL);
+    rb->gui_synclist_set_icon_callback(&lists, pf_db_track_get_icon);
+    rb->gui_synclist_set_nb_items(&lists, total_items);
+    rb->gui_synclist_set_title(&lists, get_album_name(center_index), Icon_Folder);
+    rb->gui_synclist_select_item(&lists, (pf_tracks.count > 0) ? 2 : 0);
+    rb->gui_synclist_draw(&lists);
+
+    int exit_ret = 0;
+    while (true)
+    {
+        int action;
+        if (rb->list_do_action(CONTEXT_LIST, HZ / 2, &lists, &action))
+            continue;
+
+        if (action == ACTION_STD_OK && pf_tracks.count > 0)
+        {
+            int sel = rb->gui_synclist_get_sel_pos(&lists);
+            if (sel == 0)
+            {
+                rb->global_settings->playlist_shuffle = 0;
+                rb->global_settings->repeat_mode = 0;
+                pf_tracks.sel = 0;
+            }
+            else if (sel == 1)
+            {
+                rb->global_settings->playlist_shuffle = 1;
+                pf_tracks.sel = 0;
+            }
+            else
+            {
+                pf_tracks.sel = sel - 2;
+            }
+#if PF_PLAYBACK_CAPABLE
+            if (pf_cfg.auto_wps != 0)
+            {
+                if (start_playback(true))
+                {
+                    exit_ret = PLUGIN_GOTO_WPS;
+                    break;
+                }
+            }
+            else
+            {
+                start_playback(false);
+                rb->yield();
+            }
+#endif
+            rb->gui_synclist_draw(&lists);
+        }
+#if PF_PLAYBACK_CAPABLE
+        else if (action == ACTION_STD_CONTEXT && pf_tracks.count > 0)
+        {
+            int sel = rb->gui_synclist_get_sel_pos(&lists);
+            if (sel >= 2)
+            {
+                pf_tracks.sel = sel - 2;
+                if (context_menu_ready())
+                {
+                    int cret = context_menu();
+                    context_menu_cleanup();
+                    if (cret != 0)
+                    {
+                        exit_ret = cret;
+                        break;
+                    }
+                }
+                rb->gui_synclist_draw(&lists);
+            }
+        }
+#endif
+        else if (action == ACTION_TREE_WPS)
+        {
+            exit_ret = PLUGIN_GOTO_WPS;
+            break;
+        }
+        else if (action == ACTION_STD_CANCEL || action == ACTION_STD_MENU)
+        {
+            break;
+        }
+        else if (rb->default_event_handler(action) == SYS_USB_CONNECTED)
+        {
+            exit_ret = PLUGIN_USB_CONNECTED;
+            break;
+        }
+    }
+
+    if (exit_ret == 0)
+        pf_crossfade_to_bg(false);
+
+    rb->screens[SCREEN_MAIN]->scroll_stop();
+    rb->viewportmanager_theme_undo(SCREEN_MAIN, false);
+    rb->sb_set_persistent_title(pf_cfg.show_statusbar ?
+                                rb->str(LANG_PICTUREFLOW) : NULL,
+                                Icon_NOICON, SCREEN_MAIN);
+    struct viewport *vp_main = rb->lcd_set_viewport(NULL);
+    lcd_fb = vp_main->buffer->fb_ptr;
+    pf_fb_stride = vp_main->buffer->stride;
+    rb->lcd_setfont(FONT_UI);
+#if LCD_DEPTH > 1
+    rb->lcd_set_background(PF_THEME_BG);
+    rb->lcd_set_foreground(PF_THEME_FG);
+#endif
+    rb->lcd_clear_display();
+#ifdef USEGSLIB
+    grey_show(true);
+#endif
+    mylcd_set_drawmode(DRMODE_FG);
+
+    free_borrowed_tracks();
+    pf_state = pf_cover_out;
+    return exit_ret;
+}
+
 static int pictureflow_main(void)
 {
     int ret;
@@ -4808,6 +5468,8 @@ static int pictureflow_main(void)
                 break;
             case pf_cover_in:
                 update_cover_in_animation();
+                if (pf_state == pf_show_tracks)
+                    continue;
                 render_all_slides();
                 instant_update = true;
                 break;
@@ -4818,8 +5480,24 @@ static int pictureflow_main(void)
                 instant_update = true;
                 break;
             case pf_show_tracks:
-                if (!show_track_list() && !prompt_reinit())
-                    return PLUGIN_OK;
+                if (show_tracks_while_browsing)
+                {
+                    if (!show_track_list() && !prompt_reinit())
+                        return PLUGIN_OK;
+                }
+                else
+                {
+                    int db_ret = show_album_tracks_db_list();
+                    if (db_ret < 0)
+                    {
+                        if (!prompt_reinit())
+                            return PLUGIN_OK;
+                    }
+                    else if (db_ret != 0)
+                        return db_ret;
+                    instant_update = true;
+                    continue;
+                }
                 break;
             case pf_idle:
                 show_tracks_while_browsing = false;
@@ -4845,7 +5523,7 @@ static int pictureflow_main(void)
 #ifdef USEGSLIB
             mylcd_set_foreground(G_BRIGHT(255));
 #else
-            mylcd_set_foreground(G_PIX(255,0,0));
+            mylcd_set_foreground(PF_THEME_FG);
 #endif
             if(aa_cache.inspected >= pf_idx.album_ct)
                  rb->snprintf(fpstxt, sizeof(fpstxt), "FPS: %d", fps);
@@ -4857,18 +5535,37 @@ static int pictureflow_main(void)
 
             if (pf_cfg.show_album_name == ALBUM_NAME_TOP ||
                 pf_cfg.show_album_name == ALBUM_AND_ARTIST_TOP)
-                fpstxt_y = LCD_HEIGHT -
+                fpstxt_y = PF_LCD_HEIGHT -
                            rb->screens[SCREEN_MAIN]->getcharheight();
             else
-                fpstxt_y = 0;
+                fpstxt_y = pf_sb_top;
             mylcd_putsxy(0, fpstxt_y, fpstxt);
         }
         draw_album_text();
+#if defined(INNIOASIS_Y1) && defined(HAVE_LCD_COLOR)
+        scroll_abc_draw_overlay();
+#endif
+        /* Crossfade before showing album view ~0.8s before full turn completion */
+        if (pf_state == pf_cover_in &&
+            cover_animation_keyframe >= COVER_IN_EARLY_END - COVER_IN_FADE_SPAN)
+        {
+            int step_i = cover_animation_keyframe -
+                         (COVER_IN_EARLY_END - COVER_IN_FADE_SPAN);
+            int inv = (step_i * 256) / COVER_IN_FADE_SPAN;
+            pf_blend_fb_to_bg(inv, false);
+            if (inv >= 256)
+                pf_cover_in_faded = true;
+        }
 
 
         /* Copy offscreen buffer to LCD and give time to other threads */
         if (is_initial_slide == false)
-            mylcd_update();
+        {
+            if (pf_sb_top > 0)
+                mylcd_update_rect(0, pf_sb_top, PF_LCD_WIDTH, PF_LCD_HEIGHT - pf_sb_top);
+            else
+                mylcd_update();
+        }
         rb->yield();
 
         /*/ Handle buttons */
@@ -4878,6 +5575,18 @@ static int pictureflow_main(void)
 #endif
             ,instant_update ? 0 : HZ/16,
             get_context_map);
+
+#if defined(INNIOASIS_Y1) && defined(HAVE_LCD_COLOR)
+        if (button != PF_NEXT && button != PF_NEXT_REPEAT &&
+            button != PF_PREV && button != PF_PREV_REPEAT &&
+            (button != ACTION_NONE ||
+             (scroll_abc_last_wheel_tick &&
+              !TIME_BEFORE(*rb->current_tick, scroll_abc_last_wheel_tick + HZ / 4))))
+        {
+            scroll_abc_last_wheel_tick = 0;
+            scroll_abc_fast_streak = 0;
+        }
+#endif
 
         switch (button) {
         case PF_QUIT:
@@ -4908,6 +5617,8 @@ static int pictureflow_main(void)
             ret = main_menu();
             FOR_NB_SCREENS(i)
                 rb->viewportmanager_theme_undo(i, false);
+            if (ret == 0 && pf_cfg.show_statusbar)
+                rb->viewportmanager_theme_enable(SCREEN_MAIN, true, NULL);
 
             if (ret == -3)
             {
@@ -4944,7 +5655,16 @@ static int pictureflow_main(void)
                 skip_animation_to_idle_state();
 
             if ( pf_state == pf_idle || pf_state == pf_scrolling )
+            {
+#if defined(INNIOASIS_Y1) && defined(HAVE_LCD_COLOR)
+                if (rb->global_settings->scroll_abc &&
+                    (scroll_abc_overlay_active() ||
+                     scroll_abc_is_fast_wheel_action(button)) &&
+                    scroll_abc_move(1))
+                    break;
+#endif
                 show_next_slide();
+            }
             break;
 
         case PF_PREV:
@@ -4962,7 +5682,16 @@ static int pictureflow_main(void)
                 skip_animation_to_idle_state();
 
             if ( pf_state == pf_idle || pf_state == pf_scrolling )
+            {
+#if defined(INNIOASIS_Y1) && defined(HAVE_LCD_COLOR)
+                if (rb->global_settings->scroll_abc &&
+                    (scroll_abc_overlay_active() ||
+                     scroll_abc_is_fast_wheel_action(button)) &&
+                    scroll_abc_move(-1))
+                    break;
+#endif
                 show_previous_slide();
+            }
             break;
         case PF_SORTING_NEXT:
             sort_albums((pf_cfg.sort_albums_by + 1) % SORT_VALUES_SIZE, false);
@@ -5072,6 +5801,16 @@ enum plugin_status plugin_start(const void *parameter)
     int ret;
     const char *file = parameter;
     bool file_id3 = (parameter && (((char *) parameter)[0] == '/'));
+
+#ifdef INNIOASIS_Y1
+    if (rb->global_settings->y1_screen_resolution == 1) {
+        pf_lcd_width = 320;
+        pf_lcd_height = 240;
+    } else {
+        pf_lcd_width = LCD_WIDTH;
+        pf_lcd_height = LCD_HEIGHT;
+    }
+#endif
 
     if (!check_database())
     {

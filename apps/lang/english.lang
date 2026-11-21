@@ -19045,3 +19045,17 @@
     *: "Stretch"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_Y1_FILE_PLAYLISTS
+  desc: submenu for file-based playlists in iPod mode
+  user: core
+  <source>
+    *: "File Playlists"
+  </source>
+  <dest>
+    *: "File Playlists"
+  </dest>
+  <voice>
+    *: "File Playlists"
+  </voice>
+</phrase>

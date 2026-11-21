@@ -36,6 +36,7 @@
 #endif
 #ifdef INNIOASIS_Y1
 #include "liby1.h"
+#include "tagcache.h"
 #endif
 #include "buffering.h"
 #include "linked_list.h"
@@ -656,6 +657,9 @@ static bool buffer_handle(int handle_id, size_t to_buffer)
     if (h->type == TYPE_ID3) {
         get_metadata_ex(ringbuf_ptr(h->data),
                         h->fd, h->path, METADATA_CLOSE_FD_ON_EXIT);
+#if defined(INNIOASIS_Y1) && defined(HAVE_TC_RAMCACHE)
+        tagcache_overlay_tags(ringbuf_ptr(h->data));
+#endif
         h->fd = -1; /* with above, behavior same as close_fd */
         h->widx = ringbuf_add(h->data, h->filesize);
         h->end  = h->filesize;
@@ -891,6 +895,12 @@ static int load_image(int fd, const char *path,
                 }
                 bmp->width = dw;
                 bmp->height = dh;
+#if (LCD_DEPTH > 1) || defined(HAVE_REMOTE_LCD) && (LCD_REMOTE_DEPTH > 1)
+                bmp->format = FORMAT_NATIVE;
+#endif
+#ifdef HAVE_LCD_COLOR
+                bmp->alpha_offset = 0;
+#endif
                 free(src);
                 return (int)(sizeof(struct bitmap) + need);
             }

@@ -419,6 +419,8 @@ struct plugin_api {
     void (*gui_synclist_set_title)(struct gui_synclist *lists, const char* title,
                                    enum themable_icons icon);
     void (*gui_synclist_scroll_stop)(struct gui_synclist *lists);
+    bool (*list_do_action)(int context, int timeout,
+                           struct gui_synclist *lists, int *action);
     enum yesno_res (*gui_syncyesno_run)(const struct text_message * main_message,
                                         const struct text_message * yes_message,
                                         const struct text_message * no_message);
@@ -851,9 +853,9 @@ struct plugin_api {
     void (*tagcache_commit_finalize)(void);
 #if defined(HAVE_TC_RAMCACHE)
     bool (*tagcache_is_in_ram)(void);
-#if defined(HAVE_DIRCACHE)
+#if defined(HAVE_DIRCACHE) || defined(INNIOASIS_Y1)
     bool (*tagcache_fill_tags)(struct mp3entry *id3, const char *filename);
-#endif /* HAVE_DIRCACHE */
+#endif /* HAVE_DIRCACHE || INNIOASIS_Y1 */
 #endif /* HAVE_TC_RAMCACHE */
 #endif /* HAVE_TAGCACHE */
 

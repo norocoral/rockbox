@@ -1637,6 +1637,9 @@ static bool audio_get_track_metadata(int offset, struct mp3entry *id3)
 #if defined(HAVE_TC_RAMCACHE) && defined(HAVE_DIRCACHE)
         /* Try to get it from the database */
         if (!tagcache_fill_tags(id3, path))
+#elif defined(INNIOASIS_Y1) && defined(HAVE_TC_RAMCACHE)
+        strlcpy(id3->path, path, sizeof(id3->path));
+        if (!tagcache_overlay_tags(id3))
 #endif
         {
             /* By now, filename is the only source of info */
@@ -2220,6 +2223,9 @@ static int audio_load_track(void)
         {
             id3_mutex_lock();
             get_metadata(ub_id3, fd, path);
+#if defined(INNIOASIS_Y1) && defined(HAVE_TC_RAMCACHE)
+            tagcache_overlay_tags(ub_id3);
+#endif
             id3_mutex_unlock();
         }
 

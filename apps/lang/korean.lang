@@ -18989,3 +18989,17 @@
     *: "늘리기"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_Y1_FILE_PLAYLISTS
+  desc: submenu for file-based playlists in iPod mode
+  user: core
+  <source>
+    *: "File Playlists"
+  </source>
+  <dest>
+    *: "파일 재생목록"
+  </dest>
+  <voice>
+    *: "파일 재생목록"
+  </voice>
+</phrase>

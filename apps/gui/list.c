@@ -287,6 +287,37 @@ static bool scroll_abc_is_engaged(struct gui_synclist *lists)
            scroll_abc_overlay_active();
 }
 
+static unsigned int scroll_abc_isqrt(unsigned int n)
+{
+    unsigned int root = 0;
+    unsigned int bit = 1U << 30;
+    while (bit > n)
+        bit >>= 2;
+    while (bit != 0)
+    {
+        if (n >= root + bit)
+        {
+            n -= root + bit;
+            root = (root >> 1) + bit;
+        }
+        else
+        {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return root;
+}
+
+static unsigned int scroll_abc_blend_rgb(unsigned int fg, unsigned int bg, int alpha)
+{
+    int inv = 255 - alpha;
+    int r = (RGB_UNPACK_RED(fg) * alpha + RGB_UNPACK_RED(bg) * inv) / 255;
+    int g = (RGB_UNPACK_GREEN(fg) * alpha + RGB_UNPACK_GREEN(bg) * inv) / 255;
+    int b = (RGB_UNPACK_BLUE(fg) * alpha + RGB_UNPACK_BLUE(bg) * inv) / 255;
+    return LCD_RGBPACK(r, g, b);
+}
+
 static void scroll_abc_draw_overlay(struct gui_synclist *lists)
 {
     struct screen *display = &screens[SCREEN_MAIN];
@@ -314,16 +345,40 @@ static void scroll_abc_draw_overlay(struct gui_synclist *lists)
     old_bg = display->get_background();
     display->setfont(list_font);
     display->set_drawmode(DRMODE_SOLID);
-    display->set_foreground(global_settings.fg_color);
+    unsigned int fg_col = dynamic_colors_resolve(global_settings.fg_color);
+    unsigned int bg_col = dynamic_colors_resolve(global_settings.bg_color);
+    int r16 = radius * 16;
     for (int y = -radius; y <= radius; y++)
     {
-        int x = radius;
-        while (x * x + y * y > radius * radius)
-            x--;
-        display->hline(cx - x, cx + x, cy + y);
+        int x_inner = -1;
+        for (int x = 0; x <= radius; x++)
+        {
+            unsigned int d16 = scroll_abc_isqrt((unsigned int)(x * x + y * y) * 256U);
+            if ((int)d16 <= r16 - 16)
+            {
+                x_inner = x;
+            }
+            else if ((int)d16 < r16)
+            {
+                int alpha = ((r16 - (int)d16) * 255) / 16;
+                display->set_foreground(scroll_abc_blend_rgb(fg_col, bg_col, alpha));
+                display->drawpixel(cx + x, cy + y);
+                if (x > 0)
+                    display->drawpixel(cx - x, cy + y);
+            }
+            else
+            {
+                break;
+            }
+        }
+        if (x_inner >= 0)
+        {
+            display->set_foreground(fg_col);
+            display->hline(cx - x_inner, cx + x_inner, cy + y);
+        }
     }
 
-    display->set_foreground(global_settings.bg_color);
+    display->set_foreground(bg_col);
     display->set_drawmode(DRMODE_FG);
     display->getstringsize((const unsigned char *)scroll_abc_overlay,
                            &text_width, &text_height);

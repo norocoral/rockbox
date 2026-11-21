@@ -494,7 +494,6 @@ MENUITEM_FUNCTION(y1_reboot_to_android_item, 0, ID2P(LANG_REBOOT_TO_ANDROID),
 
 MENUITEM_SETTING(y1_bt_enable_item, &global_settings.bt_enabled, NULL);
 MENUITEM_SETTING(y1_bt_connected_device_full_volume_item, &global_settings.bt_connected_device_full_volume, NULL);
-MENUITEM_SETTING(y1_rich_album_view_item, &global_settings.y1_rich_album_view, NULL);
 MENUITEM_SETTING(y1_modern_scheme_item, &global_settings.y1_modern_scheme, NULL);
 MENUITEM_SETTING(y1_ipod_usb_mode_item, &global_settings.y1_ipod_usb_mode, NULL);
 
@@ -917,7 +916,6 @@ MAKE_MENU(nugget_headphone_menu, ID2P(LANG_Y1_HEADPHONE_REMOTE), 0, Icon_NOICON,
 MAKE_MENU(nugget_device_menu, ID2P(LANG_DEVICE), 0, Icon_NOICON,
           &y1_screen_res_setting,
           &y1_scroll_abc_item,
-          &y1_rich_album_view_item,
           &y1_modern_scheme_item,
           &y1_cpu_mode_setting,
           &y1_cpu_cores_setting,
@@ -1435,6 +1433,263 @@ static struct browse_folder_info langs = { LANG_DIR, SHOW_LNG };
 
 MENUITEM_FUNCTION_W_PARAM(browse_langs, 0, ID2P(LANG_LANGUAGE),
                           browse_folder, (void*)&langs, NULL, Icon_Language);
+
+#if defined(INNIOASIS_Y1)
+#include <stdlib.h>
+#include "file.h"
+
+#define PF_CFG_FILE "/" ROCKBOX_DIR "/pictureflow.cfg"
+
+static int coverflow_settings_action(void *param)
+{
+    (void)param;
+    int sort_albums_by = 0; /* 0=artist+name, 1=artist+year, 2=year, 3=name */
+    int show_album_name = 4; /* 0=hide, 1=bottom, 2=top, 3=all top, 4=all bottom */
+    bool show_year = false;
+    int year_order = 0; /* 0=asc, 1=desc */
+    int auto_wps = 0; /* 0=off, 1=direct, 2=via track list */
+    bool show_statusbar = true;
+    bool show_fps = false;
+    int slide_spacing = 25;
+    int center_margin = -12;
+    int num_slides = 4;
+    int zoom = 100;
+    int scroll_speed = 200;
+    int transition_speed = 200;
+    bool text_crossfade = true;
+    int cache_version = 5;
+    int last_album = 0;
+    int backlight = 0;
+    bool resize = true;
+    bool update_albumart = false;
+
+    int art_cache_pos = 0;
+    int art_cache_inspected = 0;
+
+    static const char * const sort_strs[] = {
+        "artist + name", "artist + year", "year", "name"
+    };
+    static const char * const album_name_strs[] = {
+        "hide", "bottom", "top", "both top", "both bottom"
+    };
+    static const char * const year_strs[] = {
+        "ascending", "descending"
+    };
+
+    int fd = open(PF_CFG_FILE, O_RDONLY);
+    if (fd >= 0)
+    {
+        char line[128];
+        while (read_line(fd, line, sizeof(line)) > 0)
+        {
+            char *colon = strchr(line, ':');
+            if (!colon)
+                continue;
+            *colon = '\0';
+            char *val = colon + 1;
+            while (*val == ' ' || *val == '\t')
+                val++;
+
+            if (!strcmp(line, "sort albums by")) {
+                for (int i = 0; i < 4; i++)
+                    if (!strcasecmp(val, sort_strs[i])) sort_albums_by = i;
+            } else if (!strcmp(line, "show album name")) {
+                for (int i = 0; i < 5; i++)
+                    if (!strcasecmp(val, album_name_strs[i])) show_album_name = i;
+            } else if (!strcmp(line, "show year")) {
+                show_year = !strcasecmp(val, "on") || atoi(val) != 0;
+            } else if (!strcmp(line, "year order")) {
+                for (int i = 0; i < 2; i++)
+                    if (!strcasecmp(val, year_strs[i])) year_order = i;
+            } else if (!strcmp(line, "auto wps")) {
+                auto_wps = atoi(val);
+            } else if (!strcmp(line, "show statusbar")) {
+                show_statusbar = !strcasecmp(val, "on") || atoi(val) != 0;
+            } else if (!strcmp(line, "show fps")) {
+                show_fps = !strcasecmp(val, "on") || atoi(val) != 0;
+            } else if (!strcmp(line, "slide spacing")) {
+                slide_spacing = atoi(val);
+            } else if (!strcmp(line, "center margin")) {
+                center_margin = atoi(val);
+            } else if (!strcmp(line, "slides count")) {
+                num_slides = atoi(val);
+            } else if (!strcmp(line, "zoom")) {
+                zoom = atoi(val);
+            } else if (!strcmp(line, "scroll speed")) {
+                scroll_speed = atoi(val);
+            } else if (!strcmp(line, "transition speed")) {
+                transition_speed = atoi(val);
+            } else if (!strcmp(line, "text crossfade")) {
+                text_crossfade = !strcasecmp(val, "on") || atoi(val) != 0;
+            } else if (!strcmp(line, "cache version")) {
+                cache_version = atoi(val);
+            } else if (!strcmp(line, "last album")) {
+                last_album = atoi(val);
+            } else if (!strcmp(line, "backlight")) {
+                backlight = atoi(val);
+            } else if (!strcmp(line, "art cache pos")) {
+                art_cache_pos = atoi(val);
+            } else if (!strcmp(line, "art cache inspected")) {
+                art_cache_inspected = atoi(val);
+            } else if (!strcmp(line, "resize")) {
+                resize = !strcasecmp(val, "on") || atoi(val) != 0;
+            } else if (!strcmp(line, "update albumart")) {
+                update_albumart = !strcasecmp(val, "on") || atoi(val) != 0;
+            }
+        }
+        close(fd);
+    }
+
+    MENUITEM_STRINGLIST(cf_menu, ID2P(LANG_PICTUREFLOW), NULL,
+                        ID2P(LANG_SORT_ALBUMS_BY),
+                        ID2P(LANG_SHOW_ALBUM_TITLE),
+                        ID2P(LANG_SHOW_YEAR_IN_ALBUM_TITLE),
+                        ID2P(LANG_YEAR_SORT_ORDER),
+                        ID2P(LANG_WPS_INTEGRATION),
+                        ID2P(LANG_BACKLIGHT),
+                        ID2P(LANG_COVER_FLOW_STATUSBAR),
+                        ID2P(LANG_DISPLAY_FPS),
+                        ID2P(LANG_SPACING),
+                        ID2P(LANG_CENTRE_MARGIN),
+                        ID2P(LANG_NUMBER_OF_SLIDES),
+                        ID2P(LANG_ZOOM),
+                        ID2P(LANG_RESIZE_COVERS),
+                        ID2P(LANG_SCROLL_SPEED),
+                        ID2P(LANG_COVER_FLOW_TRANSITION_SPEED),
+                        ID2P(LANG_COVER_FLOW_TEXT_CROSSFADE),
+                        ID2P(LANG_REBUILD_CACHE),
+                        ID2P(LANG_UPDATE_CACHE));
+
+    static const struct opt_items sort_options[] = {
+        { STR(LANG_ARTIST_PLUS_NAME) },
+        { STR(LANG_ARTIST_PLUS_YEAR) },
+        { STR(LANG_ID3_YEAR) },
+        { STR(LANG_NAME) }
+    };
+    static const struct opt_items album_name_options[] = {
+        { STR(LANG_HIDE_INFO) },
+        { STR(LANG_SHOW_AT_THE_BOTTOM_NEW) },
+        { STR(LANG_SHOW_AT_THE_TOP_NEW) },
+        { STR(LANG_SHOW_ALL_AT_THE_TOP) },
+        { STR(LANG_SHOW_ALL_AT_THE_BOTTOM) }
+    };
+    static const struct opt_items year_sort_options[] = {
+        { STR(LANG_ASCENDING) },
+        { STR(LANG_DESCENDING) }
+    };
+    static const struct opt_items wps_options[] = {
+        { STR(LANG_OFF) },
+        { STR(LANG_DIRECT) },
+        { STR(LANG_VIA_TRACK_LIST) }
+    };
+    static const struct opt_items backlight_options[] = {
+        { STR(LANG_ALWAYS_ON) },
+        { STR(LANG_NORMAL) }
+    };
+
+    int selection = 0;
+    do {
+        selection = do_menu(&cf_menu, &selection, NULL, false);
+        switch (selection) {
+            case 0:
+                set_option(str(LANG_SORT_ALBUMS_BY), &sort_albums_by, RB_INT, sort_options, 4, NULL);
+                break;
+            case 1:
+                set_option(str(LANG_SHOW_ALBUM_TITLE), &show_album_name, RB_INT, album_name_options, 5, NULL);
+                break;
+            case 2:
+                set_bool(str(LANG_SHOW_YEAR_IN_ALBUM_TITLE), &show_year);
+                break;
+            case 3:
+                set_option(str(LANG_YEAR_SORT_ORDER), &year_order, RB_INT, year_sort_options, 2, NULL);
+                break;
+            case 4:
+                set_option(str(LANG_WPS_INTEGRATION), &auto_wps, RB_INT, wps_options, 3, NULL);
+                break;
+            case 5:
+                set_option(str(LANG_BACKLIGHT), &backlight, RB_INT, backlight_options, 2, NULL);
+                break;
+            case 6:
+                set_bool(str(LANG_COVER_FLOW_STATUSBAR), &show_statusbar);
+                break;
+            case 7:
+                set_bool(str(LANG_DISPLAY_FPS), &show_fps);
+                break;
+            case 8:
+                set_int(str(LANG_SPACING), "", 1, &slide_spacing, NULL, 1, 0, 100, NULL);
+                break;
+            case 9:
+                set_int(str(LANG_CENTRE_MARGIN), "", 1, &center_margin, NULL, 1, -40, 80, NULL);
+                break;
+            case 10:
+                set_int(str(LANG_NUMBER_OF_SLIDES), "", 1, &num_slides, NULL, 1, 1, 10, NULL);
+                break;
+            case 11:
+                set_int(str(LANG_ZOOM), "", 1, &zoom, NULL, 1, 10, 300, NULL);
+                break;
+            case 12:
+                set_bool(str(LANG_RESIZE_COVERS), &resize);
+                break;
+            case 13:
+                set_int(str(LANG_SCROLL_SPEED), "%", 1, &scroll_speed, NULL, 25, 100, 400, NULL);
+                break;
+            case 14:
+                set_int(str(LANG_COVER_FLOW_TRANSITION_SPEED), "%", 1, &transition_speed, NULL, 25, 100, 400, NULL);
+                break;
+            case 15:
+                set_bool(str(LANG_COVER_FLOW_TEXT_CROSSFADE), &text_crossfade);
+                break;
+            case 16:
+                if (yesno_pop_confirm(ID2P(LANG_REBUILD_CACHE)))
+                {
+                    update_albumart = false;
+                    cache_version = 0;
+                }
+                break;
+            case 17:
+                if (yesno_pop_confirm(ID2P(LANG_UPDATE_CACHE)))
+                {
+                    update_albumart = true;
+                    cache_version = 0;
+                }
+                break;
+        }
+    } while (selection >= 0);
+
+    fd = open(PF_CFG_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd >= 0)
+    {
+        fdprintf(fd, "file version: %10d\n", 3);
+        fdprintf(fd, "slide spacing: %10d\n", slide_spacing);
+        fdprintf(fd, "center margin: %10d\n", center_margin);
+        fdprintf(fd, "slides count: %10d\n", num_slides);
+        fdprintf(fd, "zoom: %10d\n", zoom);
+        fdprintf(fd, "show fps: %10d\n", show_fps ? 1 : 0);
+        fdprintf(fd, "resize: %10d\n", resize ? 1 : 0);
+        fdprintf(fd, "cache version: %10d\n", cache_version);
+        fdprintf(fd, "show album name: %s\n", album_name_strs[show_album_name]);
+        fdprintf(fd, "auto wps: %10d\n", auto_wps);
+        fdprintf(fd, "last album: %10d\n", last_album);
+        fdprintf(fd, "backlight: %10d\n", backlight);
+        fdprintf(fd, "art cache pos: %10d\n", art_cache_pos);
+        fdprintf(fd, "art cache inspected: %10d\n", art_cache_inspected);
+        fdprintf(fd, "sort albums by: %s\n", sort_strs[sort_albums_by]);
+        fdprintf(fd, "year order: %s\n", year_strs[year_order]);
+        fdprintf(fd, "show year: %10d\n", show_year ? 1 : 0);
+        fdprintf(fd, "update albumart: %10d\n", update_albumart ? 1 : 0);
+        fdprintf(fd, "show statusbar: %10d\n", show_statusbar ? 1 : 0);
+        fdprintf(fd, "scroll speed: %10d\n", scroll_speed);
+        fdprintf(fd, "transition speed: %10d\n", transition_speed);
+        fdprintf(fd, "text crossfade: %10d\n", text_crossfade ? 1 : 0);
+        close(fd);
+    }
+
+    return 0;
+}
+
+MENUITEM_FUNCTION(coverflow_settings_item, 0, ID2P(LANG_PICTUREFLOW),
+                  coverflow_settings_action, NULL, Icon_General_settings_menu);
+#endif
 
 MAKE_MENU(settings_menu_item, ID2P(LANG_GENERAL_SETTINGS), 0,
           Icon_General_settings_menu,

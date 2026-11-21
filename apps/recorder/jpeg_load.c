@@ -2067,6 +2067,55 @@ int read_jpeg_file(const char* filename,
                    int format,
                    const struct custom_format *cformat)
 {
+#if defined(INNIOASIS_Y1) && !defined(PLUGIN) && defined(HAVE_ALBUMART)
+    if (filename && strncmp(filename, "ithmb://", 8) == 0 && !cformat)
+    {
+        extern bool y1_ipod_native_load_albumart_rgb565(const char *rb_path,
+                                                        uint16_t **out_rgb565,
+                                                        int *out_w, int *out_h);
+        uint16_t *src = NULL;
+        int sw = 0, sh = 0;
+        if (y1_ipod_native_load_albumart_rgb565(filename + 8, &src, &sw, &sh) &&
+            src && sw > 0 && sh > 0)
+        {
+            int dw = (format & FORMAT_RESIZE) ? bm->width : sw;
+            int dh = (format & FORMAT_RESIZE) ? bm->height : sh;
+            if ((format & (FORMAT_RESIZE | FORMAT_KEEP_ASPECT)) ==
+                (FORMAT_RESIZE | FORMAT_KEEP_ASPECT))
+            {
+                if (dw * sh > dh * sw)
+                    dw = (dh * sw + sh / 2) / sh;
+                else
+                    dh = (dw * sh + sw / 2) / sw;
+            }
+            if (dw < 1) dw = 1;
+            if (dh < 1) dh = 1;
+            size_t need = (size_t)dw * (size_t)dh * sizeof(uint16_t);
+            if (need <= (size_t)maxsize && bm->data)
+            {
+                uint16_t *dst = (uint16_t *)bm->data;
+                for (int y = 0; y < dh; y++)
+                {
+                    int sy = (y * sh) / dh;
+                    for (int x = 0; x < dw; x++)
+                    {
+                        int sx = (x * sw) / dw;
+                        dst[y * dw + x] = src[sy * sw + sx];
+                    }
+                }
+                bm->width = dw;
+                bm->height = dh;
+#if (LCD_DEPTH > 1) || defined(HAVE_REMOTE_LCD) && (LCD_REMOTE_DEPTH > 1)
+                bm->format = FORMAT_NATIVE;
+#endif
+                free(src);
+                return (int)need;
+            }
+            free(src);
+        }
+        return -1;
+    }
+#endif
     return clip_jpeg_file(filename, 0, 0, bm, maxsize, format, cformat);
 }
 #endif

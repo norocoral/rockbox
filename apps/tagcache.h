@@ -200,8 +200,11 @@ void tagcache_screensync_enable(bool state);
 
 #ifdef HAVE_TC_RAMCACHE
 bool tagcache_is_in_ram(void);
-#ifdef HAVE_DIRCACHE
+#if defined(HAVE_DIRCACHE) || defined(INNIOASIS_Y1)
 bool tagcache_fill_tags(struct mp3entry *id3, const char *filename);
+#endif
+#ifdef INNIOASIS_Y1
+bool tagcache_overlay_tags(struct mp3entry *id3);
 #endif
 void tagcache_unload_ramcache(void);
 #endif

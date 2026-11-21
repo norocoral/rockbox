@@ -198,6 +198,13 @@ void button_add_input_device(int i)
     }
 }
 
+static int button_bitmap = 0;
+
+void button_clear_stuck_bitmap(void)
+{
+    button_bitmap = 0;
+}
+
 void button_init_device(void)
 {
     num_devices = 0;
@@ -321,7 +328,6 @@ static void handle_touchscreen_event(__u16 code, __s32 value)
 #endif
 int button_read_device(BDATA)
 {
-    static int button_bitmap = 0;
     static int pending_release = 0;
     struct input_event event;
     int newly_pressed = 0;
@@ -481,6 +487,12 @@ int button_read_device(BDATA)
             prev_delta_ns = delta_ns;
             have_prev_delta = true;
         }
+    }
+
+    if (mem_resumed) {
+        /* Touch/key release events may be swallowed across kernel mem suspend. */
+        button_bitmap = 0;
+        pending_release = 0;
     }
 
     /* Grab userspace wakelock immediately on any wake input or mem-suspend

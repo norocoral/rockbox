@@ -1736,6 +1736,9 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
         strip = 0;
     }
 
+    if (offset > 0)
+        sort = false;
+
     /* lock buflib out due to possible yields */
     tree_lock_cache(c);
     struct tagentry *dptr = core_get_data(c->cache.entries_handle);
@@ -1756,7 +1759,6 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
                 dptr->customaction = ONPLAY_CUSTOMACTION_PLAY_ALL;
                 dptr++;
                 current_entry_count++;
-                c->special_entry_count++;
             }
             if (offset <= 1)
             {
@@ -1766,8 +1768,8 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
                 dptr->customaction = ONPLAY_CUSTOMACTION_SHUFFLE_ALL;
                 dptr++;
                 current_entry_count++;
-                c->special_entry_count++;
             }
+            c->special_entry_count += 2;
             total_count += 2;
         }
     }
@@ -1784,7 +1786,6 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
                 dptr->customaction = ONPLAY_CUSTOMACTION_PLAY_ALL;
                 dptr++;
                 current_entry_count++;
-                c->special_entry_count++;
             }
             if (offset <= 1)
             {
@@ -1794,8 +1795,8 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
                 dptr->customaction = ONPLAY_CUSTOMACTION_SHUFFLE_ALL;
                 dptr++;
                 current_entry_count++;
-                c->special_entry_count++;
             }
+            c->special_entry_count += 2;
             total_count += 2;
             action_offset = 2;
         }
@@ -1810,7 +1811,6 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
             dptr->customaction = ONPLAY_NO_CUSTOMACTION;
             dptr++;
             current_entry_count++;
-            c->special_entry_count++;
         }
         if (offset <= (show_album_sorted_offset))
         {
@@ -1820,7 +1820,6 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
             dptr->customaction = ONPLAY_NO_CUSTOMACTION;
             dptr++;
             current_entry_count++;
-            c->special_entry_count++;
         }
         if (offset <= (1 + show_album_sorted_offset))
         {
@@ -1830,9 +1829,9 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
             dptr->customaction = ONPLAY_NO_CUSTOMACTION;
             dptr++;
             current_entry_count++;
-            c->special_entry_count++;
         }
 
+        c->special_entry_count += 2 + (show_album_sorted ? 1 : 0);
         total_count += 2;
         if (show_album_sorted)
             total_count++;
@@ -1946,28 +1945,7 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
             else
             {
                 tcs_get_basename(&tcs, is_basename);
-                char extra_info[128] = "";
-                if (global_settings.y1_rich_album_view && tag == tag_album)
-                {
-                    char artist_buf[64] = "";
-                    char year_buf[16] = "";
-                    tagcache_retrieve(&tcs, tcs.idx_id, tag_virt_canonicalartist, artist_buf, sizeof(artist_buf));
-                    if (artist_buf[0] == '\0')
-                        tagcache_retrieve(&tcs, tcs.idx_id, tag_albumartist, artist_buf, sizeof(artist_buf));
-                    if (artist_buf[0] == '\0')
-                        tagcache_retrieve(&tcs, tcs.idx_id, tag_artist, artist_buf, sizeof(artist_buf));
-                    tagcache_retrieve(&tcs, tcs.idx_id, tag_year, year_buf, sizeof(year_buf));
-
-                    if (artist_buf[0] && year_buf[0] && strcmp(year_buf, "0") != 0)
-                        snprintf(extra_info, sizeof(extra_info), " (%s • %s)", artist_buf, year_buf);
-                    else if (artist_buf[0])
-                        snprintf(extra_info, sizeof(extra_info), " (%s)", artist_buf);
-                    else if (year_buf[0] && strcmp(year_buf, "0") != 0)
-                        snprintf(extra_info, sizeof(extra_info), " (%s)", year_buf);
-                }
-
-                int extra_len = strlen(extra_info);
-                namebufused += tcs.result_len + extra_len;
+                namebufused += tcs.result_len;
                 bool buffer_full = (namebufused >= c->cache.name_buffer_size);
                 if (!buffer_full)
                 {
@@ -1977,11 +1955,7 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
                         namebufused += strlen(dptr->album_name)+1;
                     else
                         dptr->album_name = NULL;
-                    if (extra_len > 0)
-                        snprintf(dptr->name, c->cache.name_buffer_size - (dptr->name - (char*)core_get_data(c->cache.name_buffer_handle)),
-                                 "%s%s", tcs.result, extra_info);
-                    else
-                        strcpy(dptr->name, tcs.result);
+                    strcpy(dptr->name, tcs.result);
                 }
                 else
                 {
@@ -2153,12 +2127,15 @@ static int load_root(struct tree_context *c)
 }
 
 static bool tagtree_select_named_entry(struct tree_context *c,
-                                       const char *name)
+                                       const char *name, int lang_id)
 {
     for (int i = 0; i < c->filesindir; i++)
     {
         struct tagentry *entry = tagtree_get_entry(c, i);
-        if (!strcmp(P2STR((unsigned char *)entry->name), name))
+        if (!entry)
+            continue;
+        if ((lang_id >= 0 && P2ID((unsigned char *)entry->name) == lang_id) ||
+            !strcmp(P2STR((unsigned char *)entry->name), name))
         {
             c->selected_item = i;
             return true;
@@ -2173,15 +2150,26 @@ static int tagtree_load_wps_target(struct tree_context *c, int count)
     wps_browse_target = TAGTREE_WPS_BROWSE_NONE;
 
     if (target == TAGTREE_WPS_BROWSE_NONE ||
-        !tagtree_select_named_entry(c, "Same as currently played track"))
+        !tagtree_select_named_entry(c, "Same as currently played track",
+                                    LANG_SAME_AS_CURRENT))
         return count;
 
     tagtree_enter(c, false);
     count = tagtree_load(c);
+    if (count < 0)
+        return count;
+
     const char *name = target == TAGTREE_WPS_BROWSE_ARTIST ?
                        "Artist" : "Album";
-    if (count < 0 || !tagtree_select_named_entry(c, name))
-        return count;
+    int lang_id = target == TAGTREE_WPS_BROWSE_ARTIST ?
+                  LANG_ID3_ARTIST : LANG_ID3_ALBUM;
+    if (!tagtree_select_named_entry(c, name, lang_id))
+    {
+        int fallback = target == TAGTREE_WPS_BROWSE_ARTIST ? 0 : 1;
+        if (c->filesindir <= fallback)
+            return count;
+        c->selected_item = fallback;
+    }
 
     tagtree_enter(c, false);
     return tagtree_load(c);
@@ -2581,9 +2569,10 @@ static bool* fill_random_playlist_indexes(bool *bool_array, size_t arr_sz,
     return bool_array;
 }
 
-static bool insert_all_playlist(struct tree_context *c,
-                                const char* playlist, bool new_playlist,
-                                int position, bool queue)
+static bool insert_all_playlist_ex(struct tree_context *c,
+                                   const char* playlist, bool new_playlist,
+                                   int position, bool queue,
+                                   int *start_index_out)
 {
     struct tagcache_search tcs;
     int n;
@@ -2592,6 +2581,10 @@ static bool insert_all_playlist(struct tree_context *c,
     int slots_remaining = 0;
     bool fill_randomly = false;
     bool *rand_bool_array = NULL;
+    int target_entry_idx = c->selected_item;
+    int inserted_count = 0;
+    if (start_index_out)
+        *start_index_out = 0;
     char buf[MAX_PATH];
     struct playlist_insert_context context;
 
@@ -2713,7 +2706,8 @@ static bool insert_all_playlist(struct tree_context *c,
             }
         }
 
-        if (!tagcache_retrieve(&tcs, tagtree_get_entry(c, i + c->special_entry_count)->extraseek, tcs.type, buf, sizeof buf))
+        struct tagentry *te = tagtree_get_entry(c, i + c->special_entry_count);
+        if (!te || !tagcache_retrieve(&tcs, te->extraseek, tcs.type, buf, sizeof buf))
             continue;
 
         if (playlist == NULL)
@@ -2732,6 +2726,9 @@ static bool insert_all_playlist(struct tree_context *c,
                 exit_loop_now = true;
                 break;
             }
+            if (start_index_out && (i + c->special_entry_count) == target_entry_idx)
+                *start_index_out = inserted_count;
+            inserted_count++;
         }
         else if (fdprintf(fd, "%s\n", buf) <= 0)
         {
@@ -2752,7 +2749,17 @@ static bool insert_all_playlist(struct tree_context *c,
     tagcache_search_finish(&tcs);
     cpu_boost(false);
 
+    if (start_index_out && inserted_count == 0)
+        return false;
+
     return true;
+}
+
+static bool insert_all_playlist(struct tree_context *c,
+                                const char* playlist, bool new_playlist,
+                                int position, bool queue)
+{
+    return insert_all_playlist_ex(c, playlist, new_playlist, position, queue, NULL);
 }
 
 static bool goto_allsubentries(int newtable)
@@ -2763,6 +2770,10 @@ static bool goto_allsubentries(int newtable)
     {
         tagtree_enter(tc, false);
         tagtree_load(tc);
+        if (tc->filesindir <= 0)
+            return false;
+        if (tc->filesindir > tc->special_entry_count)
+            tc->selected_item = tc->special_entry_count;
         newtable = tagtree_get_entry(tc, tc->selected_item)->newtable;
         i++;
     }
@@ -2957,7 +2968,7 @@ int tagtree_add_to_playlist(const char* playlist, bool new_playlist)
 static int tagtree_play_folder(struct tree_context* c)
 {
     logf( "%s", __func__);
-    int start_index = c->selected_item;
+    int start_index = 0;
 
     if (playlist_create(NULL, NULL) < 0)
     {
@@ -2965,7 +2976,7 @@ static int tagtree_play_folder(struct tree_context* c)
         return -1;
     }
 
-    if (!insert_all_playlist(c, NULL, false, PLAYLIST_INSERT_LAST, false))
+    if (!insert_all_playlist_ex(c, NULL, false, PLAYLIST_INSERT_LAST, false, &start_index))
         return -2;
 
     int n = c->filesindir;
