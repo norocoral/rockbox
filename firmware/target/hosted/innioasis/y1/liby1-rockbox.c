@@ -19,6 +19,8 @@
 #include "../../../../../vendor/liby1/src/y1_tuner.c"
 #include "../../../../../vendor/liby1/src/y1_usb.c"
 #include "../../../../../vendor/liby1/src/y1_ipod_sync.c"
+#include "../../../../../vendor/liby1/src/y1_bt.c"
+#include "../../../../../vendor/liby1/src/y1_wifi.c"
 #elif defined(__has_include) && __has_include("../../../../../../!nugget/main/liby1/src/y1_core.c")
 #include "../../../../../../!nugget/main/liby1/src/y1_core.c"
 #include "../../../../../../!nugget/main/liby1/src/y1_display.c"

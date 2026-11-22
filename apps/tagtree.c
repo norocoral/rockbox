@@ -2825,8 +2825,9 @@ static bool tagtree_insert_selection(int position, bool queue,
                 return (tagtree_play_all_db(true) == 0);
             }
         }
-        else if (csi->tagorder[tc->dirlevel] == tag_title ||
-                 csi->tagorder[tc->dirlevel] == tag_filename ||
+        else if (csi->tagorder[tc->currextra] == tag_title ||
+                 csi->tagorder[tc->currextra] == tag_filename ||
+                 csi->tagorder[tc->currextra] == tag_virt_basename ||
                  tc->currtable == TABLE_ALLSUBENTRIES ||
                  tc->currtable == TABLE_ALLSUBENTRIES_SORTED_BY_ALBUMS)
         {
@@ -3162,5 +3163,7 @@ static int tagtree_play_all_db(bool shuffle)
 
 int tagtree_shuffle_all(void)
 {
+    if (!warn_on_pl_erase())
+        return -1;
     return tagtree_play_all_db(true);
 }

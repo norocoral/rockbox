@@ -943,9 +943,7 @@ MAKE_MENU(nugget_device_menu, ID2P(LANG_DEVICE), 0, Icon_NOICON,
           &nugget_headphone_menu);
 
 MAKE_MENU(nugget_menu, ID2P(LANG_NUGGET), 0, Icon_NOICON,
-          &nugget_device_menu,
-          &y1_bootloader_menu_item,
-          &y1_reboot_to_android_item);
+          &nugget_device_menu);
 
 static int y1_video_select_dir_func(void)
 {

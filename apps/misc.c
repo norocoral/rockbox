@@ -1924,12 +1924,6 @@ void keyclick_click(bool rawbutton, int action)
         do_beep = false;
         do_vibrate = false;
     }
-
-    if (do_vibrate)
-    {
-        extern void y1_vibrate(int ms);
-        y1_vibrate(global_settings.keyclick_vibrate_ms);
-    }
 #endif
 
     if (do_beep)
@@ -1959,6 +1953,14 @@ void keyclick_click(bool rawbutton, int action)
 #endif
 #endif
     }
+
+#if defined(INNIOASIS_Y1)
+    if (do_vibrate)
+    {
+        extern void y1_vibrate(int ms);
+        y1_vibrate(global_settings.keyclick_vibrate_ms);
+    }
+#endif
 }
 
 /* Return the ReplayGain mode adjusted by other relevant settings */

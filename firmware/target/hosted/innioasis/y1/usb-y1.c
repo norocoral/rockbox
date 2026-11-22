@@ -15,13 +15,6 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/ioctl.h>
-#include <fcntl.h>
-#include <time.h>
-#include <linux/rtc.h>
 #include "config.h"
 #include "disk.h"
 #include "usb.h"
@@ -36,17 +29,6 @@ static bool g_attached_since_post_sync = false;
 static char g_convert_stage[96] = {0};
 static int g_convert_done = 0;
 static int g_convert_total = 0;
-
-static void y1_sync_progress_cb(const char *stage, int done, int total, void *user)
-{
-    (void)user;
-    if (stage)
-        snprintf(g_convert_stage, sizeof(g_convert_stage), "%s", stage);
-    else
-        g_convert_stage[0] = '\0';
-    g_convert_done = done;
-    g_convert_total = total;
-}
 
 bool y1_usb_is_converting(char *status_buf, size_t buf_sz)
 {
@@ -101,69 +83,9 @@ static void attach_with_pre_sync(void)
         g_attached_since_post_sync = true;
 }
 
-static void sync_time_from_usb_sdcard(void)
-{
-    time_t now = time(NULL);
-    time_t best_mtime = 0;
-
-    static const char * const probe_paths[] = {
-        "/mnt/sdcard",
-        "/mnt/sdcard/iPod_Control/iTunes/iTunesDB",
-        "/mnt/sdcard/iPod_Control/iTunes",
-        "/mnt/sdcard/.rockbox",
-        "/mnt/sdcard/Playlists",
-    };
-
-    for (size_t i = 0; i < sizeof(probe_paths) / sizeof(probe_paths[0]); i++) {
-        struct stat st;
-        if (stat(probe_paths[i], &st) == 0 && st.st_mtime > best_mtime)
-            best_mtime = st.st_mtime;
-    }
-
-    DIR *d = opendir("/mnt/sdcard");
-    if (d) {
-        struct dirent *ent;
-        char full[300];
-        while ((ent = readdir(d)) != NULL) {
-            if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-                continue;
-            snprintf(full, sizeof(full), "/mnt/sdcard/%s", ent->d_name);
-            struct stat st;
-            if (stat(full, &st) == 0 && st.st_mtime > best_mtime)
-                best_mtime = st.st_mtime;
-        }
-        closedir(d);
-    }
-
-    /* Update clock only if the newest host timestamp is valid and strictly newer than current time */
-    if (best_mtime >= 1700000000L && best_mtime > now) {
-        struct timeval tv = { .tv_sec = best_mtime, .tv_usec = 0 };
-        settimeofday(&tv, NULL);
-
-        struct tm tm_utc;
-        if (gmtime_r(&best_mtime, &tm_utc)) {
-            int rfd = open("/dev/rtc0", O_WRONLY | O_CLOEXEC);
-            if (rfd >= 0) {
-                struct rtc_time rtm;
-                memset(&rtm, 0, sizeof(rtm));
-                rtm.tm_sec  = tm_utc.tm_sec;
-                rtm.tm_min  = tm_utc.tm_min;
-                rtm.tm_hour = tm_utc.tm_hour;
-                rtm.tm_mday = tm_utc.tm_mday;
-                rtm.tm_mon  = tm_utc.tm_mon;
-                rtm.tm_year = tm_utc.tm_year;
-                rtm.tm_wday = tm_utc.tm_wday;
-                rtm.tm_yday = tm_utc.tm_yday;
-                ioctl(rfd, RTC_SET_TIME, &rtm);
-                close(rfd);
-            }
-        }
-    }
-}
-
 static void run_post_disconnect_once(void)
 {
-    sync_time_from_usb_sdcard();
+    y1_usb_sync_clock_from_sdcard();
 
     if (!g_attached_since_post_sync)
         return;

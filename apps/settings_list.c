@@ -97,12 +97,18 @@ extern void y1_apply_resolution_setting(int mode);
 static void y1_ipod_usb_mode_changed(bool enabled)
 {
 #ifndef __PCTOOL__
+    extern bool y1_usb_get_ipod_mode(void);
     extern void y1_usb_set_ipod_mode(bool enabled);
     extern void y1_ipod_native_invalidate(void);
+    extern bool tagcache_is_usable(void);
     extern void tagcache_reload_after_usb(void);
+    bool was_enabled = y1_usb_get_ipod_mode();
     y1_usb_set_ipod_mode(enabled);
-    y1_ipod_native_invalidate();
-    tagcache_reload_after_usb();
+    if (was_enabled != enabled || !tagcache_is_usable())
+    {
+        y1_ipod_native_invalidate();
+        tagcache_reload_after_usb();
+    }
 #else
     (void)enabled;
 #endif
@@ -2259,6 +2265,16 @@ const struct settings_list settings[] = {
                     getlang_time_unit_0_is_always, lcd_set_sleep_after_backlight_off,
                     23, timeout_sec_common),
 #endif /* HAVE_LCD_SLEEP_SETTING */
+#if defined(INNIOASIS_Y1)
+    INT_SETTING(0,
+                y1_sleep_bl_off_brightness,
+                LANG_Y1_SLEEP_BL_OFF_BRIGHTNESS,
+                5,
+                "sleep backlight off brightness",
+                UNIT_PERCENT,
+                0, 100, 1,
+                NULL, NULL, NULL),
+#endif
 #endif /* HAVE_BACKLIGHT */
 
     OFFON_SETTING(0, hold_lr_for_scroll_in_list, -1, true,

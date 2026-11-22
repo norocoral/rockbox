@@ -181,6 +181,10 @@ MAKE_MENU(sel_backlight, ID2P(LANG_BACKLIGHT_SELECTIVE),
 MENUITEM_SETTING(lcd_sleep_after_backlight_off,
                 &global_settings.lcd_sleep_after_backlight_off, NULL);
 #endif
+#if defined(INNIOASIS_Y1)
+MENUITEM_SETTING(y1_sleep_bl_off_brightness_item,
+                &global_settings.y1_sleep_bl_off_brightness, NULL);
+#endif
 #ifdef HAVE_BACKLIGHT_BRIGHTNESS
 MENUITEM_SETTING(brightness_item, &global_settings.brightness, NULL);
 #endif
@@ -219,6 +223,9 @@ MAKE_MENU(lcd_settings,ID2P(LANG_LCD_MENU),
             ,&sel_backlight
 # ifdef HAVE_LCD_SLEEP_SETTING
             ,&lcd_sleep_after_backlight_off
+# endif
+# if defined(INNIOASIS_Y1)
+            ,&y1_sleep_bl_off_brightness_item
 # endif
 # ifdef HAVE_BACKLIGHT_BRIGHTNESS
             ,&brightness_item

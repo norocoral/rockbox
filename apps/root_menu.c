@@ -185,8 +185,18 @@ static int browser(void* param)
 #ifdef INNIOASIS_Y1
             if (y1_usb_get_ipod_mode() && !tagcache_is_usable())
             {
-                splash(HZ*2, ID2P(LANG_Y1_SYNC_ITUNES_DB));
-                break;
+                if (y1_ipod_native_is_active())
+                {
+                    tagcache_reload_after_usb();
+                    long deadline = current_tick + HZ * 3;
+                    while (!tagcache_is_usable() && TIME_BEFORE(current_tick, deadline))
+                        sleep(HZ / 20);
+                }
+                if (!tagcache_is_usable())
+                {
+                    splash(HZ*2, ID2P(LANG_Y1_SYNC_ITUNES_DB));
+                    break;
+                }
             }
 #endif
             if (!tagcache_is_usable())

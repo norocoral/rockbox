@@ -961,6 +961,7 @@ struct user_settings
     int y1_cpu_mode;
     int y1_cpu_cores;
     bool y1_screen_off_cpu_save;
+    int  y1_sleep_bl_off_brightness;
     bool y1_logging_enabled;
     bool bootloader_menu;
     int y1_screen_resolution;

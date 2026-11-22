@@ -5423,9 +5423,13 @@ void tagcache_unload_ramcache(void)
 #ifdef INNIOASIS_Y1
 static bool load_native_ipod_ramcache(void)
 {
+    extern void y1_logf(const char *fmt, ...);
     struct y1_ipod_ramcache_data rcdata;
     if (!y1_ipod_native_load_ramcache(&rcdata))
+    {
+        y1_logf("[tagcache] y1_ipod_native_load_ramcache failed\n");
         return false;
+    }
 
     if (tcramcache.handle > 0)
     {
@@ -5442,6 +5446,7 @@ static bool load_native_ipod_ramcache(void)
     int handle = core_alloc_ex(alloc_size, &ops);
     if (handle <= 0)
     {
+        y1_logf("[tagcache] core_alloc_ex(%zu) failed\n", alloc_size);
         y1_ipod_native_free_ramcache(&rcdata);
         return false;
     }

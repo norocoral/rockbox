@@ -195,9 +195,17 @@ void backlight_hw_off(void)
     y1_logf("[backlight-unix] backlight_hw_off() called (last_bl=%d)\n", last_bl);
     if (last_bl != BACKLIGHT_POWER_OFF) {
         last_bl = BACKLIGHT_POWER_OFF;
-        write_bl_hw(0);
+        int off_pct = 0;
+        if (backlight_get_current_timeout() >= 0 &&
+            global_settings.lcd_sleep_after_backlight_off != 0) {
+            off_pct = global_settings.y1_sleep_bl_off_brightness;
+            if (off_pct < 0) off_pct = 0;
+            if (off_pct > 100) off_pct = 100;
+        }
+        int hw_val = (off_pct * 255) / 100;
+        write_bl_hw(hw_val);
         if (sysfs_bl_power)
-            sysfs_set_int(sysfs_bl_power, last_bl);
+            sysfs_set_int(sysfs_bl_power, off_pct > 0 ? BACKLIGHT_POWER_REDUCED : BACKLIGHT_POWER_OFF);
     }
 #else
     if (last_bl != BACKLIGHT_POWER_REDUCED) {
@@ -276,8 +284,7 @@ void lcd_sleep(void)
 
     y1_set_screen_off_power_mode(true);
 
-    if (!y1_display_is_early_suspended() &&
-        !(global_settings.bl_selective_actions && y1_playback_active()))
+    if (!y1_display_is_early_suspended())
         y1_enter_kernel_early_suspend();
 }
 #else

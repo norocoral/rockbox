@@ -34,6 +34,7 @@
 #endif
 
 #if defined(INNIOASIS_Y1)
+#include "liby1.h"
 extern bool y1_is_screen_sleeping(void);
 static inline long y1_poll_interval(long active_ticks, long sleep_ticks)
 {
@@ -166,6 +167,9 @@ unsigned int power_input_status(void)
 #endif
 
     if (last_pwr_tick == 0 || (now - last_pwr_tick) > interval) {
+#if defined(INNIOASIS_Y1)
+        last_status = y1_power_usb_online() ? POWER_INPUT_USB_CHARGER : POWER_INPUT_NONE;
+#else
         int present = 0;
         bool ok = sysfs_get_int(POWER_STATUS_PATH, &present);
         if (!ok || present <= 0) {
@@ -177,6 +181,7 @@ unsigned int power_input_status(void)
                 present = 0;
         }
         last_status = (present > 0) ? POWER_INPUT_USB_CHARGER : POWER_INPUT_NONE;
+#endif
         last_pwr_tick = now;
 
 #ifdef FIIO_M3K_LINUX

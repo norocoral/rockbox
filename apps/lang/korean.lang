@@ -19311,3 +19311,31 @@
     *: "투명도 향상"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_Y1_SLEEP_BL_OFF_BRIGHTNESS
+  desc: Brightness level while waiting to sleep after backlight off
+  user: core
+  <source>
+    *: "Sleep Backlight Off Brightness"
+  </source>
+  <dest>
+    *: "절전 대기 중 백라이트 밝기"
+  </dest>
+  <voice>
+    *: "절전 대기 중 백라이트 밝기"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CONFIGAPP
+  desc: Launch standalone ConfigApp from Rockbox System menu
+  user: core
+  <source>
+    *: "System Settings"
+  </source>
+  <dest>
+    *: "시스템 설정"
+  </dest>
+  <voice>
+    *: "시스템 설정"
+  </voice>
+</phrase>

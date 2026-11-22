@@ -1594,6 +1594,7 @@ void talk_time(const struct tm *tm, bool enqueue)
 {
     if (global_settings.timeformat == 1)
     {
+        bool is_korean = (strcasecmp(global_settings.lang_file, "korean") == 0);
         /* Voice the hour */
         long am_pm_id = VOICE_AM;
         int hour = tm->tm_hour;
@@ -1604,6 +1605,11 @@ void talk_time(const struct tm *tm, bool enqueue)
         }
         if (hour == 0)
             hour = 12;
+        if (is_korean)
+        {
+            talk_id(am_pm_id, enqueue);
+            enqueue = true;
+        }
         talk_number(hour, enqueue);
 
         /* Voice the minutes */
@@ -1619,7 +1625,8 @@ void talk_time(const struct tm *tm, bool enqueue)
                 talk_id(VOICE_OH, true);
             talk_number(tm->tm_min, true);
         }
-        talk_id(am_pm_id, true);
+        if (!is_korean)
+            talk_id(am_pm_id, true);
     }
     else
     {

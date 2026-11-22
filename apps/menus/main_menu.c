@@ -437,16 +437,21 @@ static int info_action_callback(int action, struct gui_synclist *lists)
         }
 /* INFO_TIME */
         bool is_korean = (strcasecmp(global_settings.lang_file, "korean") == 0);
-        const char *ampm = "";
-        if (global_settings.timeformat != 0)
-            ampm = is_korean ? (tm->tm_hour > 11 ? "오후" : "오전")
-                             : (tm->tm_hour > 11 ? "P" : "A");
-        simplelist_addline("%02d:%02d:%02d %s",
-            global_settings.timeformat == 0 ? tm->tm_hour :
-                 ((tm->tm_hour + 11) % 12) + 1,
-                 tm->tm_min,
-                 tm->tm_sec,
-                 ampm);
+        int hour = global_settings.timeformat == 0 ? tm->tm_hour
+                   : ((tm->tm_hour + 11) % 12) + 1;
+        if (global_settings.timeformat != 0 && is_korean)
+        {
+            simplelist_addline("%s %02d:%02d:%02d",
+                tm->tm_hour > 11 ? "오후" : "오전",
+                hour, tm->tm_min, tm->tm_sec);
+        }
+        else
+        {
+            const char *ampm = (global_settings.timeformat != 0)
+                               ? (tm->tm_hour > 11 ? "P" : "A") : "";
+            simplelist_addline("%02d:%02d:%02d %s",
+                hour, tm->tm_min, tm->tm_sec, ampm);
+        }
     }
     else
     {
@@ -526,8 +531,53 @@ MENUITEM_FUNCTION(reboot_item, 0, ID2P(LANG_REBOOT),
                   menu_reboot, NULL, Icon_System_menu);
 #endif
 
+#if defined(INNIOASIS_Y1)
+#include <sys/wait.h>
+#include <unistd.h>
+extern void button_init_device(void);
+extern void button_close_device(void);
+static int y1_open_configapp_action(void)
+{
+    const char *cfg_bin = NULL;
+    if (access("/mnt/sdcard/.system/configapp/configapp", X_OK) == 0)
+        cfg_bin = "/mnt/sdcard/.system/configapp/configapp";
+    else if (access("/.system/configapp/configapp", X_OK) == 0)
+        cfg_bin = "/.system/configapp/configapp";
+
+    if (!cfg_bin)
+    {
+        splash(HZ * 2, ID2P(LANG_FAILED));
+        return 0;
+    }
+
+    button_close_device();
+    pid_t pid = fork();
+    if (pid == 0)
+    {
+        setenv("LD_LIBRARY_PATH", "/mnt/sdcard/.system/lib:/.system/lib:/lib", 1);
+        char *const argv[] = { (char *)cfg_bin, NULL };
+        execv(cfg_bin, argv);
+        _exit(127);
+    }
+    if (pid > 0)
+    {
+        int status = 0;
+        waitpid(pid, &status, 0);
+    }
+    button_init_device();
+    button_clear_queue();
+    lcd_update();
+    return 0;
+}
+MENUITEM_FUNCTION(y1_open_configapp_item, 0, ID2P(LANG_Y1_CONFIGAPP),
+                  y1_open_configapp_action, NULL, Icon_System_menu);
+#endif
+
 MAKE_MENU(info_menu, ID2P(LANG_SYSTEM), 0, Icon_System_menu,
           &show_info_item,
+#if defined(INNIOASIS_Y1)
+          &y1_open_configapp_item,
+#endif
           &show_credits_item,
           &show_runtime_item, &show_legal_item, &debug_menu_item
 #ifdef HAVE_SW_POWEROFF

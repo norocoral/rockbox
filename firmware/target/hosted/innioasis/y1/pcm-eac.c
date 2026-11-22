@@ -425,7 +425,7 @@ static void *pcm_worker(void *arg)
                 else if (result < 0 && errno == EINTR)
                     continue;
                 else if (result < 0 && errno == EAGAIN)
-                    usleep(1000);
+                    usleep(4000);
                 else
                     break;
             }
@@ -436,7 +436,7 @@ static void *pcm_worker(void *arg)
         {
             if (!pcm_play_dma_complete_callback(PCM_DMAST_OK, &pcm_data, &pcm_size))
             {
-                usleep(1000);
+                usleep(4000);
                 continue;
             }
             pcm_play_dma_status_callback(PCM_DMAST_STARTED);
@@ -501,11 +501,11 @@ static void *pcm_worker(void *arg)
                 }
                 else if (written < 0 && (errno == EAGAIN || errno == EINTR))
                 {
-                    usleep(1000);
+                    usleep(4000);
                 }
                 else
                 {
-                    usleep(2000);
+                    usleep(5000);
                     break;
                 }
             }
@@ -523,7 +523,7 @@ static void *pcm_worker(void *arg)
         }
         else
         {
-            usleep(2000);
+            usleep(5000);
         }
     }
 
@@ -580,7 +580,7 @@ static void sink_dma_postinit(void)
     play_lock_recursion = 0;
     dma_locked = 0;
     audiohw_postinit();
-    y1_bt_init();
+    y1_bt_rockbox_init();
 }
 
 static void sink_set_freq(uint16_t freq)
@@ -598,7 +598,8 @@ static void sink_dma_start(const void *addr, size_t size)
 {
     pcm_data = addr;
     pcm_size = size;
-    y1_audio_set_deep_idle(false);
+    if (!y1_bt_is_receiver_mode())
+        y1_audio_set_deep_idle(true);
 
     pthread_mutex_lock(&pcm_mtx);
     dma_stopped = 0;

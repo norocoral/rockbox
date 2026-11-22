@@ -521,12 +521,14 @@ int button_read_device(BDATA)
 
     /* Grab userspace wakelock and turn backlight on immediately on any wake
      * input or mem-suspend resume so a single click wakes the screen even
-     * after deep sleep (5+ sec). */
-    if ((newly_pressed != 0 || raw_wake_key || mem_resumed
+     * after deep sleep (5+ sec), unless selective backlight actions are active
+     * (in which case action.c decides whether to wake the screen). */
+    if ((mem_resumed ||
+         (!global_settings.bl_selective_actions && (raw_wake_key || newly_pressed != 0
 #ifdef HAVE_SCROLLWHEEL
-         || wheel_ticks != 0
+          || wheel_ticks != 0
 #endif
-        ) && y1_display_is_early_suspended()) {
+         ))) && y1_display_is_early_suspended()) {
         y1_power_set_idle_sleep(false);
         extern bool is_keys_locked(void);
         if (!is_keys_locked() || (backlight_get_current_timeout() >= 0)) {
@@ -546,8 +548,7 @@ int button_read_device(BDATA)
         bool hold_light_on = (backlight_get_current_timeout() >= 0);
 
         if (!is_keys_locked()) {
-            extern bool y1_display_is_early_suspended(void);
-            if (!global_settings.bl_selective_actions || y1_display_is_early_suspended()) {
+            if (!global_settings.bl_selective_actions) {
                 if (bl_off) {
 #ifdef HAVE_BACKLIGHT
                     backlight_on();

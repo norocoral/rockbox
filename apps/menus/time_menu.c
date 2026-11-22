@@ -147,7 +147,7 @@ static void draw_timedate(struct viewport *vp, struct screen *display)
 {
     struct tm *tm = get_time();
     int line;
-    char time[16], date[16];
+    char time[24], date[16];
     const char *t = time, *d = date;
     if (vp->height == 0)
         return;
@@ -161,16 +161,21 @@ static void draw_timedate(struct viewport *vp, struct screen *display)
     if (valid_time(tm))
     {
         bool is_korean = (strcasecmp(global_settings.lang_file, "korean") == 0);
-        const char *ampm = "";
-        if (global_settings.timeformat != 0)
-            ampm = is_korean ? (tm->tm_hour > 11 ? " 오후" : " 오전")
-                             : (tm->tm_hour > 11 ? " P" : " A");
-        snprintf(time, sizeof(time), "%02d:%02d:%02d%s", 
-                global_settings.timeformat == 0 ? tm->tm_hour :
-                        ((tm->tm_hour + 11) % 12) + 1,
-                            tm->tm_min, 
-                            tm->tm_sec, 
-                        ampm);
+        int hour = global_settings.timeformat == 0 ? tm->tm_hour
+                   : ((tm->tm_hour + 11) % 12) + 1;
+        if (global_settings.timeformat != 0 && is_korean)
+        {
+            snprintf(time, sizeof(time), "%s %02d:%02d:%02d",
+                     tm->tm_hour > 11 ? "오후" : "오전",
+                     hour, tm->tm_min, tm->tm_sec);
+        }
+        else
+        {
+            const char *ampm = (global_settings.timeformat != 0)
+                               ? (tm->tm_hour > 11 ? " P" : " A") : "";
+            snprintf(time, sizeof(time), "%02d:%02d:%02d%s",
+                     hour, tm->tm_min, tm->tm_sec, ampm);
+        }
         switch (global_settings.date_format)
         {
             case 0:

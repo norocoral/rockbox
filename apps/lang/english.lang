@@ -19367,3 +19367,31 @@
     *: "Transparency Plus"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_Y1_SLEEP_BL_OFF_BRIGHTNESS
+  desc: Brightness level while waiting to sleep after backlight off
+  user: core
+  <source>
+    *: "Sleep Backlight Off Brightness"
+  </source>
+  <dest>
+    *: "Sleep Backlight Off Brightness"
+  </dest>
+  <voice>
+    *: "Sleep Backlight Off Brightness"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_Y1_CONFIGAPP
+  desc: Launch standalone ConfigApp from Rockbox System menu
+  user: core
+  <source>
+    *: "System Settings"
+  </source>
+  <dest>
+    *: "System Settings"
+  </dest>
+  <voice>
+    *: "System Settings"
+  </voice>
+</phrase>
