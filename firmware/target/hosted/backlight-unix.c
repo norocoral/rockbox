@@ -37,6 +37,9 @@
 #include "kernel.h"
 #include "misc.h"
 #include "settings.h"
+#ifndef BOOTLOADER
+#include "audio.h"
+#endif
 #if defined(INNIOASIS_Y1)
 #include "innioasis/y1/y1-log.h"
 #include "innioasis/y1/button-target.h"
@@ -198,14 +201,31 @@ void backlight_hw_off(void)
         int off_pct = 0;
         if (backlight_get_current_timeout() >= 0 &&
             global_settings.lcd_sleep_after_backlight_off != 0) {
-            off_pct = global_settings.y1_sleep_bl_off_brightness;
-            if (off_pct < 0) off_pct = 0;
-            if (off_pct > 100) off_pct = 100;
+            bool rule_met = true;
+#ifndef BOOTLOADER
+            if (global_settings.y1_sleep_bl_off_rules == 1) { /* Playing only */
+                if (!(audio_status() & AUDIO_STATUS_PLAY) ||
+                    (audio_status() & AUDIO_STATUS_PAUSE))
+                    rule_met = false;
+            } else if (global_settings.y1_sleep_bl_off_rules == 2) { /* WPS only */
+                if (get_current_activity() != ACTIVITY_WPS)
+                    rule_met = false;
+            }
+#endif
+            if (rule_met) {
+                off_pct = global_settings.y1_sleep_bl_off_brightness;
+                if (off_pct < 0) off_pct = 0;
+                if (off_pct > 100) off_pct = 100;
+            }
         }
         int hw_val = (off_pct * 255) / 100;
         write_bl_hw(hw_val);
         if (sysfs_bl_power)
             sysfs_set_int(sysfs_bl_power, off_pct > 0 ? BACKLIGHT_POWER_REDUCED : BACKLIGHT_POWER_OFF);
+#ifdef HAVE_LCD_SLEEP
+        if (off_pct == 0)
+            lcd_sleep();
+#endif
     }
 #else
     if (last_bl != BACKLIGHT_POWER_REDUCED) {

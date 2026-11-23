@@ -19339,3 +19339,17 @@
     *: "시스템 설정"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_Y1_SLEEP_BL_OFF_RULES
+  desc: in lcd settings
+  user: core
+  <source>
+    *: "Sleep Backlight Off Rules"
+  </source>
+  <dest>
+    *: "절전 대기 백라이트 조건"
+  </dest>
+  <voice>
+    *: "절전 대기 백라이트 조건"
+  </voice>
+</phrase>

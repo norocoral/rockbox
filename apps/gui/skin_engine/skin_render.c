@@ -85,6 +85,58 @@ static void skin_render_playlistviewer(struct playlistviewer* viewer,
 
 static char* skin_buffer;
 
+static void skin_fix_korean_ampm_str(char *s)
+{
+    if (!s || !*s) return;
+    static const char *const markers[2] = { " \xec\x98\xa4\xec\xa0\x84", " \xec\x98\xa4\xed\x9b\x84" }; /* " 오전", " 오후" */
+    for (int m = 0; m < 2; m++) {
+        char *p = s;
+        while ((p = strstr(p, markers[m])) != NULL) {
+            size_t mlen = strlen(markers[m]); /* 7 bytes: ' ' + 6-byte Korean */
+            /* Walk backwards over time digits and ':' (e.g. "12:34" or " 3:05") */
+            char *t = p;
+            int colons = 0, digits = 0;
+            while (t > s && ((t[-1] >= '0' && t[-1] <= '9') || t[-1] == ':')) {
+                if (t[-1] == ':') colons++;
+                else digits++;
+                t--;
+            }
+            if (colons >= 1 && digits >= 3) {
+                /* Include optional leading space from %cl blank-padding */
+                char *t_start = (t > s && t[-1] == ' ') ? (t - 1) : t;
+                size_t tlen = (size_t)(p - t);
+                char tmp[64];
+                if (tlen < sizeof(tmp)) {
+                    /* Rearrange "<t_start..p>< ' ' + ampm >" -> "<ampm> <time>" */
+                    const char *ampm = p + 1; /* skip leading space, 6 bytes */
+                    size_t alen = mlen - 1;
+                    memcpy(tmp, t, tlen);
+                    size_t lead = (size_t)(t - t_start);
+                    if (lead > 0) {
+                        /* Shift remainder left by 1 if there was a %cl padding space */
+                        memmove(t_start + alen + 1 + tlen, p + mlen, strlen(p + mlen) + 1);
+                    }
+                    memcpy(t_start, ampm, alen);
+                    t_start[alen] = ' ';
+                    memcpy(t_start + alen + 1, tmp, tlen);
+                    p = t_start + alen + 1 + tlen;
+                    continue;
+                }
+            }
+            p += mlen;
+        }
+    }
+}
+
+static void skin_fix_korean_ampm_align(struct align_pos *align)
+{
+    if (!align || strcasecmp(global_settings.lang_file, "korean") != 0)
+        return;
+    skin_fix_korean_ampm_str(align->left);
+    skin_fix_korean_ampm_str(align->center);
+    skin_fix_korean_ampm_str(align->right);
+}
+
 static inline struct skin_element*
 get_child(OFFSETTYPE(struct skin_element**) children, int child)
 {
@@ -842,6 +894,7 @@ void skin_render_viewport(struct skin_element* viewport, struct gui_wps *gwps,
                 display->scroll_stop_viewport_rect(&skin_viewport->vp,
                     0, info.line_number*h, skin_viewport->vp.width, h);
             }
+            skin_fix_korean_ampm_align(align);
             write_line(display, align, info.line_number,
                     info.line_scrolls, &info.line_desc);
         }
@@ -1043,6 +1096,7 @@ void skin_render_playlistviewer(struct playlistviewer* viewer,
                 display->scroll_stop_viewport_rect(vp,
                     0, info.line_number*h, vp->width, h);
             }
+            skin_fix_korean_ampm_align(align);
             write_line(display, align, info.line_number,
                     info.line_scrolls, &info.line_desc);
         }

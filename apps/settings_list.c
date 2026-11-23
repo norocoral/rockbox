@@ -2263,7 +2263,7 @@ const struct settings_list settings[] = {
                     5, "lcd sleep after backlight off",
                     off_on, UNIT_SEC, formatter_time_unit_0_is_always,
                     getlang_time_unit_0_is_always, lcd_set_sleep_after_backlight_off,
-                    23, timeout_sec_common),
+                    38, timeout_sec_hold),
 #endif /* HAVE_LCD_SLEEP_SETTING */
 #if defined(INNIOASIS_Y1)
     INT_SETTING(0,
@@ -2274,6 +2274,13 @@ const struct settings_list settings[] = {
                 UNIT_PERCENT,
                 0, 100, 1,
                 NULL, NULL, NULL),
+    CHOICE_SETTING(0, y1_sleep_bl_off_rules,
+                   LANG_Y1_SLEEP_BL_OFF_RULES, 0,
+                   "sleep backlight off rules",
+                   "off,playing only,wps only", NULL, 3,
+                   ID2P(LANG_OFF),
+                   ID2P(LANG_PLAYING_ONLY),
+                   ID2P(LANG_WPS_ONLY)),
 #endif
 #endif /* HAVE_BACKLIGHT */
 

@@ -19395,3 +19395,17 @@
     *: "System Settings"
   </voice>
 </phrase>
+<phrase>
+  id: LANG_Y1_SLEEP_BL_OFF_RULES
+  desc: in lcd settings
+  user: core
+  <source>
+    *: "Sleep Backlight Off Rules"
+  </source>
+  <dest>
+    *: "Sleep Backlight Off Rules"
+  </dest>
+  <voice>
+    *: "Sleep Backlight Off Rules"
+  </voice>
+</phrase>

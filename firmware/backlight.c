@@ -753,7 +753,9 @@ static void backlight_timeout_handler(void)
                 backlight_timer = 0;
                 do_backlight_off();
             }
+#ifndef HAVE_LCD_SLEEP
             return;
+#endif
         }
     }
 #endif
