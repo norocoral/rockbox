@@ -139,7 +139,7 @@ int usb_detect(void)
     {
         bool prev_present = cached_present;
         last_usb_check_tick = now ? now : 1;
-        cached_present = y1_power_usb_online();
+        cached_present = y1_power_usb_data_online();
 
         /* Wake screen & grab wakelock immediately on USB insertion edge so
          * kernel autosleep cannot re-suspend during USB_DEBOUNCE_POLL. */

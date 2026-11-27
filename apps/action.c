@@ -1297,11 +1297,9 @@ static int get_action_worker(action_last_t *last, action_cur_t *cur)
             }
         }
     }
-    else if (!has_flag(last->backlight_mask, SEL_ACTION_ENABLED) ||
-             y1_display_is_early_suspended())
+    else if (!has_flag(last->backlight_mask, SEL_ACTION_ENABLED))
     {
-        /* Hold Switch == DISABLED (Unlocked) AND (Selective Backlight Actions Disabled
-         * OR waking from deep early_suspend where only Center button wakes):
+        /* Hold Switch == DISABLED (Unlocked) AND Selective Backlight Actions Disabled:
          * Standard Y1 screen-off wakeup logic.
          */
         if (bl_off)

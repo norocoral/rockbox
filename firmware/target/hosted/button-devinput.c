@@ -523,18 +523,37 @@ int button_read_device(BDATA)
      * input or mem-suspend resume so a single click wakes the screen even
      * after deep sleep (5+ sec), unless selective backlight actions are active
      * (in which case action.c decides whether to wake the screen). */
-    if ((mem_resumed ||
-         (!global_settings.bl_selective_actions && (raw_wake_key || newly_pressed != 0
+    if ((mem_resumed || raw_wake_key || newly_pressed != 0
 #ifdef HAVE_SCROLLWHEEL
-          || wheel_ticks != 0
+         || wheel_ticks != 0
 #endif
-         ))) && y1_display_is_early_suspended()) {
-        y1_power_set_idle_sleep(false);
+        ) && y1_display_is_early_suspended()) {
         extern bool is_keys_locked(void);
+        extern bool y1_playback_active(void);
         if (!is_keys_locked() || (backlight_get_current_timeout() >= 0)) {
-            backlight_on();
-            buttonlight_on();
+            y1_power_set_idle_sleep(false);
+            if (!global_settings.bl_selective_actions || is_keys_locked() ||
+                (newly_pressed & BUTTON_SELECT) ||
+                (mem_resumed && newly_pressed == 0 && !raw_wake_key)) {
+                backlight_on();
+                buttonlight_on();
+                if (!is_keys_locked() && global_settings.bl_filter_first_keypress) {
+                    int filter_mask = global_settings.bl_selective_actions
+                                      ? (newly_pressed & BUTTON_SELECT)
+                                      : newly_pressed;
+                    if (filter_mask) {
+                        button_bitmap &= ~filter_mask;
+                        pending_release &= ~filter_mask;
+                        if (!pending_release)
+                            pending_release_ticks = 0;
+                    }
+                }
+            }
             reset_poweroff_timer();
+        } else if (mem_resumed && !y1_playback_active()) {
+            /* Locked in HOLD with backlight-on-hold=off: go right back to sleep
+             * without grabbing rockbox_active wakelock. */
+            y1_power_set_idle_sleep(true);
         }
     }
 #endif
@@ -543,6 +562,7 @@ int button_read_device(BDATA)
     /* Reset backlight and poweroff timers */
     if (wheel_ticks) {
         extern bool is_keys_locked(void);
+        extern bool y1_playback_active(void);
         extern bool y1_is_screen_sleeping(void);
         bool bl_off = !is_backlight_on(true) || y1_is_screen_sleeping();
         bool hold_light_on = (backlight_get_current_timeout() >= 0);

@@ -11,8 +11,8 @@ LIBY1_DIR ?= $(patsubst %/include/liby1.h,%,$(firstword \
 	$(wildcard $(ROOTDIR)/../../../!nugget/main/liby1/include/liby1.h) \
 	$(wildcard $(ROOTDIR)/../../!nugget/main/liby1/include/liby1.h) \
 	$(wildcard $(ROOTDIR)/hosted_linux_port/liby1/include/liby1.h)))
-TARGET_INC += -I$(LIBY1_DIR)/include
-INCLUDES += -I$(FIRMDIR)/include -I$(FIRMDIR)/export $(TARGET_INC) -I$(BUILDDIR) -I$(APPSDIR) -I$(LIBY1_DIR)/include
+TARGET_INC += -I$(LIBY1_DIR)/include -I$(LIBY1_DIR)/third_party/fdk-aac/include
+INCLUDES += -I$(FIRMDIR)/include -I$(FIRMDIR)/export $(TARGET_INC) -I$(BUILDDIR) -I$(APPSDIR) -I$(LIBY1_DIR)/include -I$(LIBY1_DIR)/third_party/fdk-aac/include
 
 SIMFLAGS += $(INCLUDES) $(DEFINES) -DHAVE_CONFIG_H $(GCCOPTS)
 
@@ -25,6 +25,7 @@ $(BUILDDIR)/rockbox.elf : $$(OBJ) $(FIRMLIB) $(VOICESPEEXLIB) $(CORE_LIBS)
 		-L$(BUILDDIR)/firmware -lfirmware \
 		-L$(RBCODEC_BLD)/codecs $(call a2lnk, $(VOICESPEEXLIB)) \
 		-L$(BUILDDIR)/lib $(call a2lnk,$(CORE_LIBS)) \
+		$(LIBY1_DIR)/third_party/fdk-aac/lib/libfdk-aac.a \
 		$(LDOPTS) $(GLOBAL_LDOPTS) -Wl,-Map,$(BUILDDIR)/rockbox.map
 
 $(BUILDDIR)/$(BINARY): $(BUILDDIR)/rockbox.elf

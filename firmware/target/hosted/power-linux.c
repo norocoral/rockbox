@@ -40,6 +40,16 @@ static inline long y1_poll_interval(long active_ticks, long sleep_ticks)
 {
     return y1_is_screen_sleeping() ? sleep_ticks : active_ticks;
 }
+
+/* Standard 3.7V Li-Po tables for Rockbox powermgmt (mV) */
+unsigned short battery_level_disksafe = 3450;
+unsigned short battery_level_shutoff  = 3350;
+unsigned short percent_to_volt_discharge[11] = {
+    3400, 3550, 3650, 3700, 3740, 3780, 3830, 3900, 3980, 4080, 4200
+};
+unsigned short percent_to_volt_charge[11] = {
+    3450, 3620, 3720, 3780, 3830, 3880, 3940, 4010, 4080, 4150, 4200
+};
 #endif
 
 #ifdef BATTERY_DEV_NAME
@@ -93,11 +103,14 @@ bool charging_state(void)
     long interval = 5 * HZ;
 #endif
     if (last_tick == 0 || (current_tick - last_tick) > interval) {
+#if defined(INNIOASIS_Y1)
+        last_power = y1_battery_is_charging();
+#else
         char buf[12] = {0};
         sysfs_get_string(BATTERY_STATUS_PATH, buf, sizeof(buf));
-
-        last_tick = current_tick;
         last_power = (strncmp(buf, "Charging", 8) == 0);
+#endif
+        last_tick = current_tick;
     }
     return last_power;
 }
@@ -105,20 +118,38 @@ bool charging_state(void)
 #if (CONFIG_BATTERY_MEASURE & VOLTAGE_MEASURE)
 int _battery_voltage(void)
 {
+#if defined(INNIOASIS_Y1)
+    static long last_v_tick = 0;
+    static int last_mv = 3800;
+    long now = current_tick;
+    long interval = y1_poll_interval(10 * HZ, 30 * HZ);
+    if (last_v_tick == 0 || (now - last_v_tick) > interval) {
+        int mv = y1_battery_voltage_mv();
+        if (mv > 0)
+            last_mv = mv;
+        last_v_tick = now;
+    }
+    return last_mv;
+#else
     int voltage = 0;
     sysfs_get_int(BATTERY_VOLTAGE_PATH, &voltage);
 
     return (voltage * BATTERY_VOLTAGE_SCALE_MUL) / BATTERY_VOLTAGE_SCALE_DIV;
+#endif
 }
 #endif
 
 #if (CONFIG_BATTERY_MEASURE & CURRENT_MEASURE)
 int _battery_current(void)
 {
+#if defined(INNIOASIS_Y1)
+    return y1_battery_current_ma();
+#else
     int current = 0;
     sysfs_get_int(BATTERY_CURRENT_PATH, &current);
 
     return (current * BATTERY_CURRENT_SCALE_MUL) / BATTERY_CURRENT_SCALE_DIV;
+#endif
 }
 #endif
 
@@ -135,9 +166,13 @@ int _battery_level(void)
 #endif
 
     if (last_lvl_tick == 0 || (now - last_lvl_tick) > interval) {
+#if defined(INNIOASIS_Y1)
+        last_lvl = y1_battery_percent();
+#else
         int level = 0;
         sysfs_get_int(BATTERY_LEVEL_PATH, &level);
         last_lvl = (level * BATTERY_LEVEL_SCALE_MUL) / BATTERY_LEVEL_SCALE_DIV;
+#endif
         last_lvl_tick = now;
     }
     return last_lvl;

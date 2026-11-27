@@ -949,6 +949,10 @@ static bool view_battery(void)
         lcd_clear_display();
         switch (view) {
             case 0: /* voltage history graph */
+                if (!power_history) {
+                    lcd_putsf(0, 0, "Battery history unavailable");
+                    break;
+                }
                 /* Find maximum and minimum voltage for scaling */
                 minv = power_history[0];
                 maxv = minv + 1;
@@ -1043,10 +1047,15 @@ static bool view_battery(void)
                     int pct = y1_battery_percent();
                     int mv = y1_battery_voltage_mv();
                     int ma = y1_battery_current_ma();
-                    long mw = ((long)mv * (long)ma) / 1000L;
                     int line = 1;
-                    lcd_putsf(0, line++, "Bat: %d%% | %d.%03d V | %d mA (%ld mW)",
-                              pct, mv / 1000, mv % 1000, ma, mw);
+                    if (ma != 0) {
+                        long mw = ((long)mv * (long)ma) / 1000L;
+                        lcd_putsf(0, line++, "Bat: %d%% | %d.%03d V | %d mA (%ld mW)",
+                                  pct, mv / 1000, mv % 1000, ma, mw);
+                    } else {
+                        lcd_putsf(0, line++, "Bat: %d%% | %d.%03d V (no I-sense)",
+                                  pct, mv / 1000, mv % 1000);
+                    }
                     int nstates = cpustatetimes_linux(0, states, ARRAYLEN(states));
                     long total_t = 0, low_t = 0, high_t = 0;
                     for (int s = 0; s < nstates; s++)
@@ -1069,9 +1078,10 @@ static bool view_battery(void)
                         double up_s = 0, idle_s = 0;
                         if (fscanf(uf, "%lf %lf", &up_s, &idle_s) == 2 && up_s > 0.1)
                         {
-                            int sleep_pct = (int)((idle_s * 50.0) / up_s);
+                            /* Line 4 avoids overlapping Rockbox's "Charger:" on line 3 */
+                            int sleep_pct = (int)((idle_s * 100.0) / up_s);
                             if (sleep_pct > 100) sleep_pct = 100;
-                            lcd_putsf(0, line++, "Idle/Sleep residency: %d%%", sleep_pct);
+                            lcd_putsf(0, 4, "Idle residency: %d%%", sleep_pct);
                         }
                         fclose(uf);
                     }

@@ -45,6 +45,7 @@ static unsigned long current_sampr = 44100;
 static bool audio_output_enabled = false;
 static volatile sig_atomic_t dma_stopped = 1;
 static volatile sig_atomic_t dma_locked = 0;
+static uint64_t bt_pace_us = 0;
 
 #define Y1_BT_PCM_RING_FRAMES 32768
 #define Y1_BT_PCM_PREFILL_FRAMES 2048
@@ -457,7 +458,7 @@ static void *pcm_worker(void *arg)
             while (remaining > 0 && dma_stopped == 0 && dma_locked == 0 && !pcm_thread_exit)
             {
                 bool bt_active = y1_bt_a2dp_is_streaming();
-                size_t max_chunk = bt_active ? 4096 : 32768;
+                size_t max_chunk = bt_active ? 8192 : 32768;
                 size_t chunk = remaining > max_chunk ? max_chunk : (remaining & ~3);
                 if (chunk == 0)
                     break;
@@ -469,11 +470,41 @@ static void *pcm_worker(void *arg)
 
                 ssize_t written;
                 if (bt_active) {
-                    y1_bt_a2dp_write_pcm(buf, chunk, current_sampr);
-                    if (current_sampr)
-                        usleep((useconds_t)((chunk / 4) * 1000000UL / current_sampr));
+                    unsigned long sr = current_sampr ? current_sampr : 44100UL;
+                    size_t frames = chunk >> 2;
+                    uint64_t chunk_us = ((uint64_t)frames * 1000000ULL) / sr;
+                    struct timespec ts;
+                    clock_gettime(CLOCK_MONOTONIC, &ts);
+                    uint64_t now_us = (uint64_t)ts.tv_sec * 1000000ULL +
+                                      (uint64_t)(ts.tv_nsec / 1000L);
+                    if (bt_pace_us == 0) {
+                        /* Pre-fill ~120ms so BT TX never starves on startup */
+                        bt_pace_us = (now_us > 120000ULL) ? (now_us - 120000ULL) : 0;
+                    } else if (now_us > bt_pace_us + 200000ULL) {
+                        bt_pace_us = now_us;
+                    }
+                    while (now_us < bt_pace_us && dma_stopped == 0 && dma_locked == 0 &&
+                           !pcm_thread_exit && y1_bt_a2dp_is_streaming()) {
+                        uint64_t rem = bt_pace_us - now_us;
+                        if (rem > 10000ULL) rem = 10000ULL;
+                        usleep((useconds_t)rem);
+                        clock_gettime(CLOCK_MONOTONIC, &ts);
+                        now_us = (uint64_t)ts.tv_sec * 1000000ULL +
+                                 (uint64_t)(ts.tv_nsec / 1000L);
+                    }
+                    while (y1_bt_a2dp_get_ring_free() < frames &&
+                           dma_stopped == 0 && dma_locked == 0 &&
+                           !pcm_thread_exit && y1_bt_a2dp_is_streaming()) {
+                        usleep(4000);
+                    }
+                    if (dma_stopped == 0 && dma_locked == 0 && !pcm_thread_exit &&
+                        y1_bt_a2dp_is_streaming()) {
+                        y1_bt_a2dp_write_pcm(buf, chunk, sr);
+                        bt_pace_us += chunk_us;
+                    }
                     written = (ssize_t)chunk;
                 } else {
+                    bt_pace_us = 0;
                     written = y1_audio_write_pcm(buf, chunk);
                 }
 
@@ -623,6 +654,7 @@ static void sink_dma_start(const void *addr, size_t size)
 static void sink_dma_stop(void)
 {
     pthread_mutex_lock(&pcm_mtx);
+    bt_pace_us = 0;
     dma_stopped = 1;
     pcm_data = NULL;
     pcm_size = 0;

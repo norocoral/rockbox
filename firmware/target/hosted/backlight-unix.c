@@ -306,6 +306,8 @@ void lcd_sleep(void)
 
     if (!y1_display_is_early_suspended())
         y1_enter_kernel_early_suspend();
+    else if (!y1_playback_active())
+        y1_power_set_idle_sleep(true);
 }
 #else
 void lcd_awake(void)

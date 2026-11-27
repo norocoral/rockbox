@@ -131,7 +131,7 @@ static int y1_idle_tick_timeout_ms(uint64_t now_ms, uint64_t last_active_ms)
     if (y1_bt_is_scanning() || y1_button_hold_active())
         return 0;
     if (y1_playback_active() || y1_bt_is_receiver_mode())
-        return 250;
+        return 500;
     return 30000;
 }
 #endif

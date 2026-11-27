@@ -585,7 +585,6 @@ static int item_callback(int action,
                          struct gui_synclist *this_list);
 
 static int load_screen(int screen);
-static const struct menu_item_ex *context_shortcut_item;
 
 #if defined(INNIOASIS_Y1)
 MENUITEM_SETTING(bt_receiver_auto_start_item,
@@ -740,31 +739,6 @@ static struct menu_table menu_table[] = {
 };
 #define MAX_MENU_ITEMS (sizeof(menu_table) / sizeof(struct menu_table))
 static struct menu_item_ex *root_menu__[MAX_MENU_ITEMS];
-
-static int add_root_menu_shortcut(void)
-{
-    unsigned int i;
-
-    for (i = 0; i < MAX_MENU_ITEMS; i++)
-    {
-        if (menu_table[i].item == context_shortcut_item)
-        {
-            const struct menu_callback_with_desc *desc =
-                context_shortcut_item->callback_and_desc;
-            const char *name = menu_table[i].string;
-            if (!(context_shortcut_item->flags & MENU_DYNAMIC_DESC) && desc)
-                name = P2STR(desc->desc);
-            shortcuts_add_rootmenu(menu_table[i].string, name);
-            splash(HZ, ID2P(LANG_ADD_TO_FAVES));
-            return 0;
-        }
-    }
-    return 0;
-}
-
-MENUITEM_FUNCTION(add_root_menu_shortcut_item, 0,
-                  ID2P(LANG_ADD_TO_FAVES), add_root_menu_shortcut,
-                  NULL, Icon_Bookmark);
 
 int root_menu_load_shortcut(const char *key)
 {
@@ -1002,23 +976,9 @@ static int load_context_screen(int selection)
         context_menu = &system_menu;
     }
 
-    if (root_menu__[selection] != &shortcut_menu)
+    if (context_menu)
     {
-        const struct menu_item_ex *submenus[2];
-        struct menu_callback_with_desc wrapper_desc =
-            { NULL, ID2P(LANG_SHORTCUTS), Icon_Bookmark };
-        struct menu_item_ex wrapper;
-        int count = 1;
-
-        context_shortcut_item = root_menu__[selection];
-        submenus[0] = &add_root_menu_shortcut_item;
-        if (context_menu)
-            submenus[count++] = context_menu;
-
-        wrapper.flags = MT_MENU | MENU_HAS_DESC | MENU_ITEM_COUNT(count);
-        wrapper.submenus = submenus;
-        wrapper.callback_and_desc = &wrapper_desc;
-        retval = do_menu(&wrapper, NULL, NULL, false);
+        retval = do_menu(context_menu, NULL, NULL, false);
     }
     pop_current_activity();
     return retval;
